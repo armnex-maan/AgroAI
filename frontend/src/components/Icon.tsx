@@ -81,6 +81,14 @@ const PATHS: Record<string, string> = {
   pause: "M6 4h4v16H6zM14 4h4v16h-4z",
   stop: "M6 6h12v12H6z",
   hand: "M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15",
+  save: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8",
+  cursor: "M4 3l7 18 2.5-7.5L21 11z",
+  tree: "M12 22v-6M12 2a6 6 0 0 0-6 6c0 1 .3 2 .8 2.8A4.5 4.5 0 0 0 8 19h8a4.5 4.5 0 0 0 1.2-8.2A6 6 0 0 0 12 2z",
+  greenhouse: "M3 21V11a9 9 0 0 1 18 0v10zM3 21h18M8 21V8.5M12 21V2.5M16 21V8.5",
+  ruler: "M3 17 17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2",
+  expand: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7",
+  stats: "M3 21h18M6 17V11M11 17V6M16 17v-4M21 17V9",
+  area: "M3 7l9-4 9 4-9 4zM3 12l9 4 9-4M3 17l9 4 9-4",
 };
 
 export function Icon({ name, size = 16, stroke = 1.8, className }: {

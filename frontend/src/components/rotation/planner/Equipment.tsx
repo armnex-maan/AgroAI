@@ -63,6 +63,7 @@ function GreenhouseF({ f, pts, y, sel }: { f: Feature; pts: P[]; y: number; sel:
     return mergeGeometries([wall.toNonIndexed(), roof.toNonIndexed()], false)!;
   }, [r.L, r.W, H, type]);
   const film = type === "ombraio" ? { color: "#2f3a35", opacity: 0.55 } : type === "vetro" ? { color: "#dfeef4", opacity: 0.28 } : { color: "#f1f6f8", opacity: 0.4 };
+  if (type === "vetro") return <GlassHouse r={r} H={H} y={y} pts={pts} sel={sel} k={key} />;
   return (
     <group onClick={click(sel, key)}>
       <group position={[r.cx, y, r.cz]} rotation={[0, -r.ang, 0]}>
@@ -70,6 +71,69 @@ function GreenhouseF({ f, pts, y, sel }: { f: Feature; pts: P[]; y: number; sel:
         <mesh geometry={skin}><meshStandardMaterial color={film.color} transparent opacity={film.opacity} roughness={0.15} metalness={0.05} side={THREE.DoubleSide} depthWrite={false} /></mesh>
       </group>
       {sel.selected === key && <Line points={outlineLine(pts, y + 0.2)} color="#2f7cf6" lineWidth={3} />}
+    </group>
+  );
+}
+
+/** Multi-span glass greenhouse: arched roof spans along the long side, aluminium frame, reflective glass, a
+ *  concrete floor with walkways and growing benches (structure only: crops inside are drawn only when planned). */
+function GlassHouse({ r, H, y, pts, sel, k }: { r: ReturnType<typeof orientedRect>; H: number; y: number; pts: P[]; sel: Sel; k: string }) {
+  const spans = Math.max(1, Math.round(r.W / 8));
+  const sw = r.W / spans, wallH = H * 0.72, rise = Math.min(sw * 0.32, H - wallH + 0.6);
+  const geo = useMemo(() => {
+    const frame: THREE.BufferGeometry[] = [], glass: THREE.BufferGeometry[] = [], floor: THREE.BufferGeometry[] = [];
+    const bays = Math.max(2, Math.round(r.L / 3));
+    // walls: glass panels and posts
+    for (const v of [-r.W / 2, r.W / 2]) {
+      glass.push(new THREE.PlaneGeometry(r.L, wallH).translate(0, wallH / 2, v));
+      for (let i = 0; i <= bays; i++) frame.push(new THREE.BoxGeometry(0.09, wallH, 0.09).translate(-r.L / 2 + (i * r.L) / bays, wallH / 2, v));
+    }
+    for (const u of [-r.L / 2, r.L / 2]) {
+      glass.push(new THREE.PlaneGeometry(r.W, wallH).rotateY(Math.PI / 2).translate(u, wallH / 2, 0));
+      for (let j = 0; j <= spans * 2; j++) frame.push(new THREE.BoxGeometry(0.09, wallH, 0.09).translate(u, wallH / 2, -r.W / 2 + (j * r.W) / (spans * 2)));
+    }
+    for (const h of [0.05, wallH * 0.5, wallH]) for (const v of [-r.W / 2, r.W / 2]) frame.push(new THREE.BoxGeometry(r.L, 0.07, 0.08).translate(0, h, v));
+    for (let s = 0; s < spans; s++) {
+      const c = -r.W / 2 + sw * (s + 0.5);
+      // arched roof: half cylinder flattened to the rise, along the length
+      const roof = new THREE.CylinderGeometry(sw / 2, sw / 2, r.L, 28, 1, true, -Math.PI / 2, Math.PI);
+      roof.rotateZ(Math.PI / 2); roof.scale(1, rise / (sw / 2), 1); roof.translate(0, wallH, c);
+      glass.push(roof);
+      for (const u of [-r.L / 2, r.L / 2]) {        // gable ends of each span
+        const end = new THREE.CircleGeometry(sw / 2, 24, 0, Math.PI); end.scale(1, rise / (sw / 2), 1); end.rotateY(Math.PI / 2); end.translate(u, wallH, c);
+        glass.push(end);
+      }
+      for (let i = 0; i <= bays; i++) {             // arches
+        const a = new THREE.TorusGeometry(sw / 2, 0.035, 4, 20, Math.PI); a.scale(1, rise / (sw / 2), 1); a.rotateY(Math.PI / 2); a.translate(-r.L / 2 + (i * r.L) / bays, wallH, c);
+        frame.push(a);
+      }
+      frame.push(new THREE.BoxGeometry(r.L, 0.06, 0.06).translate(0, wallH + rise, c));                         // ridge
+      if (s > 0) frame.push(new THREE.BoxGeometry(r.L, 0.12, 0.22).translate(0, wallH, -r.W / 2 + sw * s));   // gutter
+      for (const off of [-0.32, 0.32]) frame.push(new THREE.BoxGeometry(r.L, 0.04, 0.04).translate(0, wallH + rise * 0.82, c + off * sw)); // purlins
+    }
+    // floor: concrete walkway along the middle, benches across
+    floor.push(new THREE.BoxGeometry(r.L * 0.98, 0.04, r.W * 0.98).translate(0, 0.02, 0));
+    const benches: THREE.BufferGeometry[] = [];
+    const nb = Math.max(2, Math.floor((r.L - 2) / 2.2));
+    for (let i = 0; i < nb; i++) for (const side of [-1, 1])
+      benches.push(new THREE.BoxGeometry(1.4, 0.75, r.W / 2 - 1.4).translate(-r.L / 2 + 1.2 + i * 2.2, 0.375, side * (r.W / 4 + 0.35)));
+    const ni = (g: THREE.BufferGeometry) => (g.index ? g.toNonIndexed() : g);
+    const strip = (g: THREE.BufferGeometry) => { const n = ni(g); n.deleteAttribute("uv"); return n; };
+    return { frame: mergeGeometries(frame.map(strip), false)!, glass: mergeGeometries(glass.map(strip), false)!,
+      floor: mergeGeometries(floor.map(strip), false)!, benches: mergeGeometries(benches.map(strip), false)! };
+  }, [r.L, r.W, spans, sw, wallH, rise]);
+  return (
+    <group onClick={click(sel, k)}>
+      <group position={[r.cx, y, r.cz]} rotation={[0, -r.ang, 0]}>
+        <mesh geometry={geo.floor} receiveShadow><meshStandardMaterial color="#9c9a92" roughness={0.9} /></mesh>
+        <mesh geometry={geo.benches} castShadow receiveShadow><meshStandardMaterial color="#7d8a86" roughness={0.6} metalness={0.3} /></mesh>
+        <mesh geometry={geo.frame} castShadow receiveShadow><meshStandardMaterial color="#eef2f3" metalness={0.55} roughness={0.32} /></mesh>
+        <mesh geometry={geo.glass} renderOrder={2}>
+          <meshPhysicalMaterial color="#e8f4f8" transparent opacity={0.22} roughness={0.04} metalness={0.15} envMapIntensity={1.6}
+            clearcoat={1} clearcoatRoughness={0.05} side={THREE.DoubleSide} depthWrite={false} />
+        </mesh>
+      </group>
+      {sel.selected === k && <Line points={outlineLine(pts, y + 0.2)} color="#2f7cf6" lineWidth={3} />}
     </group>
   );
 }

@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Html, Line, MapControls, OrbitControls, OrthographicCamera, PerspectiveCamera, useTexture } from "@react-three/drei";
-import { canopyTexture, carpetUV } from "./canopy";
+import { canopyTexture, carpetUV, sharpAlpha } from "./canopy";
 import * as THREE from "three";
 import { XY } from "../plotGeo";
 import { cropColor, fmtArea, RCrop, shortName } from "../types";
@@ -12,15 +12,21 @@ import { CropField } from "./CropField";
 import { FeatureGizmo, Rect, SectionGizmo } from "./Editor";
 import { IrrigationDemo } from "./IrrigationDemo";
 import { FarmRef, Feature, featurePoints, Structures } from "./Structures";
-import { FarmEngine } from "./engine/FarmEngine";
+import { FarmEngine, FOG, SUN_DIR } from "./engine/FarmEngine";
+import { exportRenderScene, RenderMeta } from "./renderExport";
 import { XZ } from "./engine/Landscape";
 import { QualityProfile } from "./engine/quality";
 import { demoTerrain, FarmZone } from "./engine/terrain";
+import { treeMatrix, useImpostor } from "./engine/impostor";
+import { WaterSpray } from "./engine/WaterSpray";
+import { cropImpostor, hasCropImpostor, impostorWidth } from "./cropImpostors";
 
 export const NEUTRAL_H = 0.3; // crops missing from FAO-56 Table 12
-const VERDICT_TXT = { ok: "Va bene", care: "Con attenzione", no: "Meglio di no" } as const;
+const VERDICT_TXT = { ok: "Ottimale", care: "Con attenzione", no: "Meglio di no" } as const;
 
-export interface SceneApi { zoomBy: (f: number) => void; reset: () => void; zoomPct: () => number; focus: (x: number, z: number, r: number) => void }
+export interface SceneApi { zoomBy: (f: number) => void; reset: () => void; zoomPct: () => number; focus: (x: number, z: number, r: number) => void;
+  /** scene as it is now, for the photoreal render (Blender Cycles) */
+  exportRender: () => Promise<{ glb: Blob; meta: RenderMeta }> }
 export interface SceneProps {
   views: PlotView[]; byKey: Record<string, RCrop>; mode: "3d" | "2d"; exag: number; quality: QualityProfile;
   month: number; calendar: Record<string, Calendar>;
@@ -40,17 +46,48 @@ const heightOf = (byKey: Record<string, RCrop>, crop: string) => {
   return h ? (h[0] + h[1]) / 2 : NEUTRAL_H;
 };
 
-/** Visual factor so that about `budget` plants cover all growing beds (1 = real size). */
-export function plantFactor(views: PlotView[], byKey: Record<string, RCrop>, budget: number): number {
-  let area = 0, wsum = 0, n = 0;
+/** Visual factor so that the plants fit the budget (1 = real size). Crops baked as impostors are one quad per plant
+ *  and get their own, much larger budget: when the farm has them, they set the factor and the other beds adapt
+ *  their spacing to their own budget instead (see BedMesh). */
+export function plantFactor(views: PlotView[], byKey: Record<string, RCrop>, budget: number, impBudget = budget): number {
+  let glb = 0, imp = 0;
   for (const v of views) for (const b of v.beds) if (b.crop) {
-    area += b.area;
-    const m = plantModel(b.crop.crop, byKey[b.crop.crop]?.group ?? "frutto");
-    wsum += m.width * heightOf(byKey, b.crop.crop); n++;
+    const hgt = heightOf(byKey, b.crop.crop);
+    if (hasCropImpostor(b.crop.crop)) { const w = impostorWidth(b.crop.crop) * hgt; imp += b.area / (1.15 * w * w); }
+    else { const w = plantModel(b.crop.crop, byKey[b.crop.crop]?.group ?? "frutto").width * hgt; glb += b.area / (1.2 * w * w); }
   }
-  if (!n) return 1;
-  const w = wsum / n;
-  return Math.max(1, Math.round(Math.sqrt(area / (budget * 1.2 * w * w))));
+  const need = imp > 0 ? imp / impBudget : glb / budget;
+  return need <= 1 ? 1 : Math.max(1, Math.round(Math.sqrt(need) * 2) / 2);
+}
+
+/** Spacing grown evenly when a bed would need more plants than its budget (the bed stays fully planted). */
+function fitBudget(area: number, inRow: number, between: number, budget: number): [number, number] {
+  const n = area / (inRow * between);
+  if (n <= budget) return [inRow, between];
+  const f = Math.sqrt(n / budget);
+  return [inRow * f, between * f];
+}
+
+/** Plants of a bed as impostors (Blender-baked crops): one instanced quad per plant, shadows from the same quads. */
+function ImpostorCrops({ name, pts, offset, height, seed, shadows, tint }: {
+  name: string; pts: XY[]; offset: [number, number]; height: number; seed: number; shadows: boolean; tint: [number, number, number];
+}) {
+  const kit = useImpostor(name);
+  const ref = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => {
+    const m = ref.current; if (!m) return;
+    const mat = new THREE.Matrix4(), col = new THREE.Color();
+    pts.forEach(([x, y], i) => {
+      const a = ((i + 1) * 9301 + seed * 49297) % 1000 / 1000, b = ((i + 7) * 7919 + seed * 104729) % 1000 / 1000;
+      treeMatrix(mat, offset[0] + x + (a - 0.5) * height * 0.12, 0.1, offset[1] + y + (b - 0.5) * height * 0.12, height * (0.86 + a * 0.28), (a + b) * 6.283);
+      m.setMatrixAt(i, mat);
+      col.setRGB((0.92 + b * 0.16) * tint[0], (0.92 + a * 0.14) * tint[1], (0.9 + b * 0.1) * tint[2]); m.setColorAt(i, col);
+    });
+    m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
+  }, [pts, offset, height, seed, tint]);
+  if (!pts.length) return null;
+  return <instancedMesh ref={ref} args={[kit.geometry, kit.material, pts.length]} customDepthMaterial={kit.depth}
+    castShadow={shadows} receiveShadow={false} raycast={() => null} frustumCulled={false} />;
 }
 
 function bounds(views: PlotView[], extra: [number, number][] = []) {
@@ -185,24 +222,6 @@ function Trees({ spots, scale = 1, pick }: { spots: [number, number][]; scale?: 
   ))}</>;
 }
 
-/** Rotating water jets of sprinkler heads (parabolic arcs), animated only when the quality allows it. */
-function SprinklerJets({ heads, reach }: { heads: [number, number][]; reach: number }) {
-  const ref = useRef<THREE.InstancedMesh>(null);
-  const geo = useMemo(() => {
-    const pts = Array.from({ length: 12 }, (_, i) => { const t = i / 11; return new THREE.Vector3(t * reach, 1.2 + t * reach * 0.45 - t * t * reach * 0.6, 0); });
-    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.05, 5, false);
-  }, [reach]);
-  const o = useMemo(() => new THREE.Object3D(), []);
-  useFrame(({ clock }) => {
-    const m = ref.current; if (!m) return;
-    heads.forEach(([x, z], i) => { o.position.set(x, 0, z); o.rotation.set(0, clock.elapsedTime * 0.9 + i * 1.7, 0); o.updateMatrix(); m.setMatrixAt(i, o.matrix); });
-    m.instanceMatrix.needsUpdate = true;
-  });
-  return <instancedMesh ref={ref} args={[geo, undefined, heads.length]} raycast={() => null} frustumCulled={false}>
-    <meshStandardMaterial color="#d9eefb" transparent opacity={0.45} roughness={0.1} depthWrite={false} />
-  </instancedMesh>;
-}
-
 /** Irrigation the farmer declared: drip lines along the rows, or sprinkler heads. */
 function Irrigation({ kind, bed, offset, between, animate }: { kind: string; bed: BedView; offset: [number, number]; between: number; animate: boolean }) {
   const ref = useRef<THREE.InstancedMesh>(null);
@@ -243,7 +262,8 @@ function Irrigation({ kind, bed, offset, between, animate }: { kind: string; bed
         {kind === "sprinkler" ? <cylinderGeometry args={[0.05, 0.05, 1.2, 6]} /> : <boxGeometry args={[1, 1, 1]} />}
         <meshStandardMaterial color={kind === "drip" ? "#1d1f1e" : kind === "furrow" ? "#5a4128" : "#2f80d1"} roughness={0.8} />
       </instancedMesh>
-      {animate && heads.length > 0 && <SprinklerJets heads={heads} reach={Math.max(4, Math.sqrt(bed.area / Math.max(1, heads.length)) * 0.55)} />}
+      {animate && heads.length > 0 && <WaterSpray heads={heads.map(([x, z]) => [x, 0, z] as [number, number, number])}
+        reach={Math.max(4, Math.sqrt(bed.area / Math.max(1, heads.length)) * 0.55)} nozzle={1.2} perHead={260} />}
     </>
   );
 }
@@ -263,10 +283,10 @@ function CropCarpet({ bed, offset, crop, group, stage, h, w, between, layers }: 
   const geo = useMemo(() => carpetUV(shapeGeo(bed.local), alongY, firstRow, between), [bed.local, alongY, firstRow, between]);
   const k = STAGE_SCALE[stage];
   const base = Math.min(0.98, (w * k) / between);
-  const mats = useMemo(() => LAYERS.slice(0, layers).map((L, i) => new THREE.MeshStandardMaterial({
+  const mats = useMemo(() => LAYERS.slice(0, layers).map((L, i) => sharpAlpha(new THREE.MeshStandardMaterial({
     map: canopyTexture(crop, group, stage, base * L.band, i, diff.image as HTMLImageElement, alpha.image as HTMLImageElement),
     alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.82,
-  })), [crop, group, stage, base, layers, diff, alpha]);
+  }))), [crop, group, stage, base, layers, diff, alpha]);
   useEffect(() => () => mats.forEach((m) => m.dispose()), [mats]);
   if (k <= 0) return null;
   const top = Math.max(0.08, h * k);
@@ -276,9 +296,9 @@ function CropCarpet({ bed, offset, crop, group, stage, h, w, between, layers }: 
   ))}</>;
 }
 
-function BedMesh({ bed, view, exag, byKey, mode, selected, hovered, onSelect, onHover, budget, tex, shadows, lodDist, models, stage, month, animate, layers, demo }: {
+function BedMesh({ bed, view, exag, byKey, mode, selected, hovered, onSelect, onHover, budget, impBudget, tex, shadows, lodDist, models, stage, month, animate, layers, demo }: {
   bed: BedView; view: PlotView; exag: number; byKey: Record<string, RCrop>; mode: "3d" | "2d"; selected: boolean; hovered: boolean;
-  onSelect: (k: string | null) => void; onHover: (k: string | null) => void; budget: number; tex: ReturnType<typeof useTextures>; shadows: boolean; lodDist: number;
+  onSelect: (k: string | null) => void; onHover: (k: string | null) => void; budget: number; impBudget: number; tex: ReturnType<typeof useTextures>; shadows: boolean; lodDist: number;
   models: Record<string, CropModel>; stage: Stage; month: number; animate: boolean; layers: number; demo?: string | null;
 }) {
   const geo = useMemo(() => shapeGeo(bed.local, 0.12), [bed.local]);
@@ -287,10 +307,14 @@ function BedMesh({ bed, view, exag, byKey, mode, selected, hovered, onSelect, on
   const info = c ? byKey[c.crop] : undefined;
   const model = c ? models[c.crop] : null;
   const h = c ? heightOf(byKey, c.crop) * exag : 0;
-  const w = model ? model.width * h : 1;
-  const between = Math.max(0.45, w * 1.35, bed.rowSpacing ?? 0);
-  const inRow = Math.max(0.2, w * 0.9, bed.plantSpacing ?? 0);
-  const pts = useMemo(() => (model && mode === "3d" ? rows(bed, inRow, between, budget) : []), [bed, model, inRow, between, budget, mode]);
+  const imp = useMemo(() => (c && mode === "3d" ? cropImpostor(c.crop, stage) : null), [c?.crop, mode, stage]); // eslint-disable-line react-hooks/exhaustive-deps
+  const w = imp ? imp.wh * h : model ? model.width * h : 1;
+  // declared spacing when it is wider than the (exaggerated) plants; then grown evenly if the bed exceeds its budget
+  const [inRow, between] = imp
+    ? fitBudget(bed.area, Math.max(w * 0.9 * STAGE_SCALE[stage], bed.plantSpacing ?? 0, 0.1), Math.max(w * 1.08 * STAGE_SCALE[stage], bed.rowSpacing ?? 0, 0.2), impBudget)
+    : fitBudget(bed.area, Math.max(0.2, w * 0.9, bed.plantSpacing ?? 0), Math.max(0.45, w * 1.35, bed.rowSpacing ?? 0), budget);
+  const pts = useMemo(() => ((model || imp) && mode === "3d" ? rows(bed, inRow, between, imp ? impBudget * 1.3 : budget * 1.3) : []),
+    [bed, model, imp, inRow, between, budget, impBudget, mode]);
   const k = Math.max(1, exag / 6);  // bigger (exaggerated) plants stay readable a bit further away
   const lods = useMemo<[number, number]>(() => [lodDist * 0.35 * k, lodDist * 1.4 * k], [lodDist, k]);
   const seed = useMemo(() => [...bed.key].reduce((a, ch) => a + ch.charCodeAt(0), 0), [bed.key]);
@@ -304,17 +328,20 @@ function BedMesh({ bed, view, exag, byKey, mode, selected, hovered, onSelect, on
       <mesh geometry={geo} position={[view.offset[0], 0, view.offset[1]]} receiveShadow onClick={(e) => { e.stopPropagation(); pick(); }}
             onPointerOver={(e) => { e.stopPropagation(); over(); }} onPointerOut={out}>
         <meshStandardMaterial map={tex.soil} normalMap={tex.soilN} roughnessMap={tex.soilR} normalScale={SOIL_NORMAL}
-          color={bed.kind === "greenhouse" ? "#e6d6c4" : "#d9c6b0"} />
+          color={bed.kind === "greenhouse" ? "#b9a088" : "#a3866a"} />
       </mesh>
       {mode === "2d" && c && (
         <mesh geometry={flatGeo} position={[view.offset[0], 0.15, view.offset[1]]} raycast={() => null}>
           <meshBasicMaterial color={cropColor(c.crop, c.family)} transparent opacity={c.proposed ? 0.62 : 0.85} />
         </mesh>
       )}
-      {c && mode === "3d" && layers > 0 && !demo && (   /* during the irrigation demo the foliage carpet is hidden to show the water */
+      {c && mode === "3d" && layers > 0 && !demo && !imp && (   /* during the irrigation demo the foliage carpet is hidden to show the water */
         <CropCarpet bed={bed} offset={view.offset} crop={c.crop} group={info?.group ?? "frutto"} stage={stage} h={h} w={w} between={between} layers={layers} />
       )}
-      {model && pts.length > 0 && (
+      {imp && pts.length > 0 && (
+        <ImpostorCrops name={imp.name} pts={pts} offset={view.offset} height={h * STAGE_SCALE[stage]} seed={seed} shadows={shadows} tint={imp.tint} />
+      )}
+      {!imp && model && pts.length > 0 && (
         <CropField model={model} pts={pts} offset={view.offset} scale={h * STAGE_SCALE[stage]} spacing={between} seed={seed} stage={stage}
                    shadows={shadows} lodDist={lods} onPick={pick} onOver={over} onOut={out} farHidden={layers > 0} />
       )}
@@ -323,13 +350,23 @@ function BedMesh({ bed, view, exag, byKey, mode, selected, hovered, onSelect, on
       )}
       {bed.kind === "greenhouse" && mode === "3d" && <Greenhouse bed={bed} offset={view.offset} />}
       {demo && <IrrigationDemo system={demo} bed={bed} offset={view.offset} between={between} top={Math.max(0.3, h * STAGE_SCALE[stage])} />}
-      {(selected || hovered) && <Line points={outline} color={selected ? "#2f7cf6" : "#ffffff"} lineWidth={selected ? 3.5 : 2} />}
+      {(selected || hovered) && <Line points={outline} color={selected ? "#3d8bff" : "#ffffff"} lineWidth={selected ? 4 : 2} />}
+      {selected && bed.local.map(([x, y], i) => (   /* corner handles of the selected part */
+        <group key={i} position={[view.offset[0] + x, 0.35 + h * 0.02, view.offset[1] + y]}>
+          <mesh raycast={() => null}><sphereGeometry args={[0.55, 16, 12]} /><meshBasicMaterial color="#ffffff" /></mesh>
+          <mesh raycast={() => null} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.55, 0.85, 24]} /><meshBasicMaterial color="#3d8bff" /></mesh>
+        </group>
+      ))}
       {(selected || hovered) && (
         <Html position={[view.offset[0] + cx, h + 0.6, view.offset[1] + cy]} center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
           <div className="vp-tip">
-            <b>{c ? shortName(c.name) : bed.name}</b>
-            <span>{bed.name} · {fmtArea(bed.area)}</span>
-            {c?.verdict && <span className={`vp-v v-${c.verdict}`}>{c.proposed ? "Proposta · " : ""}{VERDICT_TXT[c.verdict]}</span>}
+            <div className="vp-tip-h">
+              {c && <span className="vp-tip-dot" style={{ background: cropColor(c.crop, c.family) }} />}
+              <b>{c ? shortName(c.name) : bed.name}</b>
+            </div>
+            <span>Superficie: {fmtArea(bed.area)}</span>
+            {c?.verdict && <span className={`vp-v v-${c.verdict}`}>{c.proposed ? "Proposta · " : "Stato: "}{VERDICT_TXT[c.verdict]}
+              {c.verdict === "ok" && <i className="vp-ok-ic">✓</i>}</span>}
             {c && month > 0 && <span>{STAGE_LABEL[stage]}</span>}
           </div>
         </Html>
@@ -395,11 +432,16 @@ export const FarmScene = forwardRef<SceneApi, SceneProps>(function FarmScene(pro
   const tex = useTextures();
   const featPts = useMemo(() => (props.farmRef ? props.features.flatMap((f) => featurePoints(f, props.farmRef!)) : []), [props.features, props.farmRef]);
   const b = useMemo(() => bounds(views, featPts), [views, featPts]);
-  const target = useMemo(() => new THREE.Vector3(b.cx, 0, b.cz), [b.cx, b.cz]);
+  // screen centre a little south-east of the farm: the side panel and the rotation strip cover the right and the bottom
+  // home view: oblique aerial view of the plots (not of every road and hedge) from the south, low enough (~20 degrees)
+  // for the wooded hills and the distant horizon to fill the top of the frame; the plots sit in the middle and bottom.
+  const bp = useMemo(() => bounds(views), [views]);
+  const target = useMemo(() => new THREE.Vector3(bp.cx + bp.size * 0.05, 0, bp.cz - bp.size * 0.09), [bp.cx, bp.cz, bp.size]);
+  const home = useMemo<[number, number, number]>(() => [bp.cx + bp.size * 0.223, bp.size * 0.364, bp.cz + bp.size * 0.909], [bp.cx, bp.cz, bp.size]);
   const controls = useRef<any>(null);
-  const { camera, size } = useThree();
+  const { camera, size, scene } = useThree();
   const orthoZoom = Math.min(size.width, size.height) / (b.size * 1.25);
-  const dist0 = b.size * 1.15;
+  const dist0 = Math.hypot(home[0] - target.x, home[1], home[2] - target.z);
 
   useImperativeHandle(ref, () => ({
     zoomBy: (f: number) => {
@@ -410,20 +452,32 @@ export const FarmScene = forwardRef<SceneApi, SceneProps>(function FarmScene(pro
     },
     reset: () => {
       if (mode === "2d") { const c = camera as THREE.OrthographicCamera; c.zoom = orthoZoom; c.position.set(b.cx, 500, b.cz); c.updateProjectionMatrix(); }
-      else camera.position.set(b.cx + b.size * 0.35, b.size * 0.55, b.cz + b.size * 0.95);
+      else camera.position.set(...home);
       controls.current?.target.copy(target);
     },
     zoomPct: () => 1,
+    exportRender: () => exportRenderScene(scene, camera as THREE.PerspectiveCamera, {
+      sun: SUN_DIR, fog: FOG, aspect: size.width / size.height,
+      grass: { center: [b.cx, b.cz], radius: b.size * 0.75 + 60, density: 7 },
+    }),
     focus: (x: number, z: number, r: number) => {
       const d = Math.max(12, r);
       if (mode === "2d") { const c = camera as THREE.OrthographicCamera; c.position.set(x, 500, z); c.zoom = Math.min(size.width, size.height) / (d * 2.5); c.updateProjectionMatrix(); }
       else camera.position.set(x + d * 0.8, d * 0.9, z + d * 1.4);
       controls.current?.target.set(x, 0, z);
     },
-  }), [mode, camera, target, b, orthoZoom, size]);
+  }), [mode, camera, target, b, orthoZoom, size, home, scene]);
+
+  // development only: place the camera from scripts (visual checks with fixed framing)
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const w = window as unknown as { __plannerCam?: (c: { p: number[]; t: number[] }) => void };
+    w.__plannerCam = ({ p, t }) => { camera.position.set(p[0], p[1], p[2]); controls.current?.target.set(t[0], t[1], t[2]); controls.current?.update?.(); };
+    return () => { delete w.__plannerCam; };
+  }, [camera]);
 
   // plant budget shared by area
-  const total = views.reduce((a, v) => a + v.beds.reduce((s, x) => s + (x.crop ? x.area : 0), 0), 0) || 1;
+  const total =views.reduce((a, v) => a + v.beds.reduce((s, x) => s + (x.crop ? x.area : 0), 0), 0) || 1;
   const zone = useMemo<FarmZone>(() => ({ x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1, cx: b.cx, cz: b.cz, size: b.size }), [b]);
   const terrain = useMemo(() => demoTerrain(zone), [zone]);
   useEffect(() => { props.onTerrainLabel?.(terrain.label); }, [terrain]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -436,7 +490,7 @@ export const FarmScene = forwardRef<SceneApi, SceneProps>(function FarmScene(pro
     <>
       {mode === "3d" ? (
         <>
-          <PerspectiveCamera makeDefault fov={45} near={0.5} far={b.size * 40 + 3000} position={[b.cx + b.size * 0.35, b.size * 0.55, b.cz + dist0 * 0.85]} />
+          <PerspectiveCamera makeDefault fov={45} near={0.5} far={b.size * 40 + 3000} position={home} />
           <OrbitControls ref={controls} target={target} enableDamping maxPolarAngle={1.47} minDistance={3} maxDistance={b.size * 5 + 300} />
         </>
       ) : (
@@ -485,15 +539,16 @@ export const FarmScene = forwardRef<SceneApi, SceneProps>(function FarmScene(pro
           {v.beds.map((bd) => (
             <BedMesh key={bd.key} bed={bd} view={v} exag={exag} byKey={byKey} mode={mode} tex={tex}
               selected={selected === bd.key} hovered={hovered === bd.key} onSelect={onSelect} onHover={onHover}
-              budget={Math.max(30, Math.round((props.quality.plants * (bd.crop ? bd.area : 0)) / total))} shadows={props.quality.plantShadows} lodDist={props.quality.plantLod}
+              budget={Math.max(30, Math.round((props.quality.plants * (bd.crop ? bd.area : 0)) / total))}
+              impBudget={Math.max(60, Math.round((props.quality.cropImpostors * 3 * (bd.crop ? bd.area : 0)) / total))} shadows={props.quality.plantShadows} lodDist={props.quality.plantLod}
               models={models} month={props.month} stage={bd.crop ? stageFor(props.calendar[bd.crop.crop], props.month) : "mature"} animate={props.quality.wind}
-              layers={props.quality.level === "high" ? 3 : props.quality.level === "medium" ? 2 : 1}
+              layers={props.quality.level === "high" || props.quality.level === "ultra" ? 3 : props.quality.level === "medium" ? 2 : 1}
               demo={props.demo?.plotId === v.plot.id ? props.demo.system : null} />
           ))}
-          <Html position={[v.offset[0] + centroid(v.outline)[0], 0.5, v.offset[1] + Math.min(...v.outline.map((p) => p[1])) - 2]} center
+          {!selected?.startsWith(`${v.plot.id}:`) && <Html position={[v.offset[0] + centroid(v.outline)[0], 0.5, v.offset[1] + Math.min(...v.outline.map((p) => p[1])) - 2]} center
                 zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
             <div className="vp-plot-label">{v.plot.name}{!v.traced && <small> · non tracciato</small>}</div>
-          </Html>
+          </Html>}
         </group>
       ))}
     </>

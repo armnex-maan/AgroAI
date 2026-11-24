@@ -5,7 +5,7 @@
  */
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Html, Line, useTexture } from "@react-three/drei";
+import { Html, Line, useGLTF, useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { XY } from "../plotGeo";
@@ -13,7 +13,9 @@ import { CropField } from "./CropField";
 import { CropModel, useTreeModels } from "./cropLibrary";
 import { rng } from "./engine/noise";
 import { TerrainSource } from "./engine/terrain";
-import { leafCloud, useLeafMaterial } from "./engine/foliage";
+import { ImpostorItem, ImpostorSet } from "./engine/ImpostorSet";
+import { WaterSpray } from "./engine/WaterSpray";
+import { IMPOSTORS } from "./engine/impostor";
 import { equipmentNode } from "./Equipment";
 
 export interface Feature {
@@ -210,6 +212,52 @@ function Building({ f, p, y, sel }: { f: Feature; p: [number, number]; y: number
   );
 }
 
+/** Tuscan farmhouse modelled in Blender (tools/blender/make_casale.py): plinth and quoins, string course, windows with
+ *  green shutters, hip roof in coppi with a dovecote tower and chimneys, portico at the main door. Canonical 14 x 24 m,
+ *  2 floors; scaled to the declared width, length and floors. Surfaces get the CC0 PBR textures by material name and the
+ *  ambient occlusion baked in Blender (vertex colour). */
+const CASALE_GLB = "/planner/buildings/casale.glb";
+const CASALE = { W: 14, L: 24, H: 6.6 };
+useGLTF.preload(CASALE_GLB);
+
+function useCasaleParts() {
+  const gltf = useGLTF(CASALE_GLB);
+  const mats = useBuildingMaterials();
+  return useMemo(() => {
+    const tinted = (m: THREE.MeshStandardMaterial, color: string) => { const c = m.clone(); c.color.set(color); return c; };
+    const byName: Record<string, THREE.Material> = {
+      wall: tinted(mats.wall, "#f3d6a4"), stone: tinted(mats.wall, "#c9b896"), roof: tinted(mats.roof, "#ffffff"),
+      wood: tinted(mats.plank, "#8a6444"),
+      shutter: new THREE.MeshStandardMaterial({ color: "#3f6c47", roughness: 0.65, vertexColors: true }),
+      glass: new THREE.MeshStandardMaterial({ color: "#1b262b", roughness: 0.12, metalness: 0.4, vertexColors: true, envMapIntensity: 1.4 }),
+    };
+    const parts: { geo: THREE.BufferGeometry; mat: THREE.Material }[] = [];
+    gltf.scene.updateMatrixWorld(true);
+    gltf.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const name = ((m.material as THREE.Material).name || "").replace(/\.\d+$/, "");
+      parts.push({ geo: m.geometry.clone().applyMatrix4(m.matrixWorld), mat: byName[name] ?? mats.plain });
+    });
+    return parts;
+  }, [gltf, mats]);
+}
+
+function CasaleBuilding({ f, p, y, sel }: { f: Feature; p: [number, number]; y: number; sel: Sel }) {
+  const [dw, dl, df] = BUILDING_DEFAULT.casale;
+  const W = f.props.width_m ?? dw, L = f.props.length_m ?? dl, floors = f.props.floors ?? df;
+  const parts = useCasaleParts();
+  const key = `feature:${f.id}`;
+  return (
+    <group position={[p[0], y, p[1]]} rotation={[0, THREE.MathUtils.degToRad(f.props.rotation_deg ?? 0), 0]}>
+      <group scale={[W / CASALE.W, (floors * 3.3) / CASALE.H, L / CASALE.L]}>
+        {parts.map((pt, i) => <mesh key={i} geometry={pt.geo} material={pt.mat} castShadow receiveShadow onClick={(e) => { e.stopPropagation(); sel.onSelect(key); }} />)}
+      </group>
+      {sel.selected === key && <Line points={[[-W / 2 - 1, 0.2, -L / 2 - 1], [W / 2 + 1, 0.2, -L / 2 - 1], [W / 2 + 1, 0.2, L / 2 + 1], [-W / 2 - 1, 0.2, L / 2 + 1], [-W / 2 - 1, 0.2, -L / 2 - 1]]} color="#2f7cf6" lineWidth={3} />}
+    </group>
+  );
+}
+
 function Tank({ f, p, y, sel }: { f: Feature; p: [number, number]; y: number; sel: Sel }) {
   const d = f.props.diameter_m ?? 4, h = f.props.height_m ?? 3, key = `feature:${f.id}`;
   const geo = useMemo(() => mergeGeometries([
@@ -244,6 +292,8 @@ function Well({ f, p, y, sel }: { f: Feature; p: [number, number]; y: number; se
   );
 }
 
+const SPRAY_ORIGIN: [number, number, number][] = [[0, 0, 0]];
+
 /** Irrigation sprinkler placed by the farmer: riser, head, turning jet; wetted circle only when the radius is declared. */
 function Sprinkler({ f, p, y, sel, animate }: { f: Feature; p: [number, number]; y: number; sel: Sel; animate: boolean }) {
   const key = `feature:${f.id}`, R: number | undefined = f.props.radius_m;
@@ -259,7 +309,8 @@ function Sprinkler({ f, p, y, sel, animate }: { f: Feature; p: [number, number];
       <mesh position={[0, 0.4, 0]} castShadow><cylinderGeometry args={[0.03, 0.04, 0.8, 8]} /><meshStandardMaterial color="#59626a" metalness={0.6} roughness={0.4} /></mesh>
       <mesh position={[0, 0.86, 0]} castShadow><cylinderGeometry args={[0.07, 0.06, 0.12, 12]} /><meshStandardMaterial color="#2f6fb0" roughness={0.5} /></mesh>
       <mesh position={[0, 0.6, 0]} visible={false}><boxGeometry args={[1.2, 1.4, 1.2]} /></mesh>{/* easier to tap */}
-      <group ref={spin}><mesh geometry={jet} raycast={() => null}><meshStandardMaterial color="#d9eefb" transparent opacity={0.5} roughness={0.1} depthWrite={false} /></mesh></group>
+      {animate ? <WaterSpray heads={SPRAY_ORIGIN} reach={reach} />
+        : <group ref={spin}><mesh geometry={jet} raycast={() => null}><meshStandardMaterial color="#d9eefb" transparent opacity={0.5} roughness={0.1} depthWrite={false} /></mesh></group>}
       {R && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]} raycast={() => null}>
         <circleGeometry args={[R, 48]} /><meshBasicMaterial color="#5aa7e0" transparent opacity={sel.selected === key ? 0.22 : 0.1} depthWrite={false} />
       </mesh>}
@@ -300,15 +351,87 @@ function ribbon(pts: [number, number][], width: number, heightAt: (x: number, z:
 const SURFACE: Record<string, [string, string]> = { sterrato: ["#d8b88e", "#c8a77c"], ghiaia: ["#f2ece0", "#e2dbcd"], asfalto: ["#55585a", "#3f4244"], cemento: ["#c2beb6", "#a7a39b"] };
 const ROAD_FILES = ["/planner/gravel_road_diff_1k.jpg", "/planner/gravel_road_nor_gl_1k.jpg"];
 
+/** Ribbon along a polyline with track coordinates: u across the road (0..1), v along it in road widths / 4. */
+function trackRibbon(pts: [number, number][], width: number, heightAt: (x: number, z: number) => number, lift: number) {
+  const pos: number[] = [], uv: number[] = [];
+  const side = (i: number) => {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    const dx = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dx, dz) || 1;
+    return [-dz / len, dx / len];
+  };
+  let along = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
+    const na = side(i), nb = side(i + 1);
+    const n = Math.max(1, Math.ceil(L / 4));                       // densify: follows the hills, keeps the texture even
+    for (let k = 0; k < n; k++) {
+      const t0 = k / n, t1 = (k + 1) / n;
+      const p = (t: number) => [ax + (bx - ax) * t, az + (bz - az) * t];
+      const nrm = (t: number) => [na[0] + (nb[0] - na[0]) * t, na[1] + (nb[1] - na[1]) * t];
+      const v = (t: number, s: number): [number, number, number] => {
+        const [x, z] = p(t), [nx, nz] = nrm(t), px = x + nx * (s * width) / 2, pz = z + nz * (s * width) / 2;
+        return [px, heightAt(px, pz) + lift, pz];
+      };
+      const v0 = (along + L * t0) / (width * 4), v1 = (along + L * t1) / (width * 4);
+      const quad: [[number, number, number], number, number][] = [[v(t0, -1), 0, v0], [v(t0, 1), 1, v0], [v(t1, -1), 0, v1], [v(t1, -1), 0, v1], [v(t0, 1), 1, v0], [v(t1, 1), 1, v1]];
+      for (const [q, uu, vv] of quad) { pos.push(...q); uv.push(uu, vv); }
+    }
+    along += L;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return g;
+}
+
+const trackCache = new Map<string, THREE.CanvasTexture>();
+/** Picture of a farm track seen from above (across = U, along = V, repeats along): dirt with two wheel ruts, a grass strip
+ *  in the middle and ragged grassy edges (alpha) for dirt roads; ruts on pale gravel; plain surface for asphalt/concrete. */
+function trackTexture(surface: string) {
+  const hit = trackCache.get(surface); if (hit) return hit;
+  const W = 128, H = 512, r = rng(surface.length * 31 + 7);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d")!, img = g.createImageData(W, H);
+  const hex = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const loose = surface === "sterrato" || surface === "ghiaia";
+  const base = hex(surface === "sterrato" ? "#b8946a" : surface === "ghiaia" ? "#d9cfbd" : surface === "asfalto" ? "#4f5254" : "#bdb9b1");
+  const rut = hex(surface === "sterrato" ? "#8e6c48" : "#b4a891"), grass = hex("#5f8c34"), grass2 = hex("#7aa647");
+  // edge wobble per row (ragged verge), smooth along the road; wraps so the tile repeats
+  const wob = (y: number, ph: number) => 0.06 + 0.035 * Math.sin((y / H) * Math.PI * 2 * 3 + ph) + 0.02 * Math.sin((y / H) * Math.PI * 2 * 11 + ph * 2);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const u = (x + 0.5) / W, i = (y * W + x) * 4, n = r();
+    let col = base.map((v) => v * (0.88 + n * 0.22));
+    let a = 255;
+    if (loose) {
+      const dr = Math.min(Math.abs(u - 0.27), Math.abs(u - 0.73));
+      if (dr < 0.075) { const k = 1 - dr / 0.075; col = col.map((v, j) => v + (rut[j] * (0.9 + n * 0.2) - v) * k * 0.85); }
+      if (surface === "sterrato" && Math.abs(u - 0.5) < 0.085 + 0.02 * Math.sin(y * 0.11)) col = (n < 0.55 ? grass : grass2).map((v) => v * (0.8 + r() * 0.35));
+      const el = wob(y, 0.7), er = wob(y, 2.9);
+      if (u < el || u > 1 - er) a = 0;
+      else if (u < el + 0.06 || u > 1 - er - 0.06) { if (r() < 0.45) col = (r() < 0.5 ? grass : grass2).map((v) => v * (0.8 + r() * 0.3)); }
+    }
+    img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2]; img.data[i + 3] = a;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  trackCache.set(surface, t);
+  return t;
+}
+
 function Road({ f, pts, terrain, sel }: { f: Feature; pts: [number, number][]; terrain: TerrainSource; sel: Sel }) {
-  const w = f.props.width_m ?? 4, [c1, c2] = SURFACE[f.props.surface ?? "sterrato"] ?? SURFACE.sterrato, key = `feature:${f.id}`;
-  const geo = useMemo(() => ribbon(pts, w, terrain.heightAt, 0.06, (s) => new THREE.Color(s > 0 ? c1 : c2)), [pts, w, terrain, c1, c2]);
-  const [gMap, gNor] = useTexture(ROAD_FILES);
-  useMemo(() => { for (const t of [gMap, gNor]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; } gMap.colorSpace = THREE.SRGBColorSpace; }, [gMap, gNor]);
-  const loose = (f.props.surface ?? "sterrato") === "sterrato" || f.props.surface === "ghiaia";
+  const w = f.props.width_m ?? 4, surface = SURFACE[f.props.surface ?? "sterrato"] ? (f.props.surface ?? "sterrato") : "sterrato", key = `feature:${f.id}`;
+  const geo = useMemo(() => trackRibbon(pts, w, terrain.heightAt, 0.07), [pts, w, terrain]);
+  const [, gNor] = useTexture(ROAD_FILES);
+  const mat = useMemo(() => {
+    gNor.wrapS = gNor.wrapT = THREE.RepeatWrapping;
+    return new THREE.MeshStandardMaterial({ map: trackTexture(surface), normalMap: gNor, normalScale: new THREE.Vector2(0.6, 0.6),
+      roughness: 1, alphaTest: 0.5, alphaToCoverage: true });
+  }, [surface, gNor]);
   const line = useMemo(() => pts.map(([x, z]) => [x, terrain.heightAt(x, z) + 0.3, z] as [number, number, number]), [pts, terrain]);
   return <group>
-    <mesh geometry={geo} receiveShadow onClick={(e) => { e.stopPropagation(); sel.onSelect(key); }}><meshStandardMaterial vertexColors roughness={1} map={loose ? gMap : null} normalMap={gNor} /></mesh>
+    <mesh geometry={geo} material={mat} receiveShadow onClick={(e) => { e.stopPropagation(); sel.onSelect(key); }} />
     {sel.selected === key && <Line points={line} color="#2f7cf6" lineWidth={3} />}
   </group>;
 }
@@ -326,26 +449,26 @@ function Pipe({ f, pts, terrain, sel }: { f: Feature; pts: [number, number][]; t
 }
 
 function Hedge({ f, pts, terrain, sel }: { f: Feature; pts: [number, number][]; terrain: TerrainSource; sel: Sel }) {
-  const ref = useRef<THREE.InstancedMesh>(null);
   const key = `feature:${f.id}`, h = f.props.height_m ?? 2.5;
-  const spots = useMemo(() => {
-    const out: [number, number][] = [];
+  // trees and shrubs of the hedge: photoscanned impostors, spaced by their height
+  const sets = useMemo(() => {
+    const r = rng(f.id.length * 7 + 3), a: ImpostorItem[] = [], b: ImpostorItem[] = [];
     for (let i = 0; i < pts.length - 1; i++) {
-      const n = Math.max(1, Math.round(Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) / (h * 0.45)));
-      for (let k = 0; k < n; k++) out.push([pts[i][0] + (pts[i + 1][0] - pts[i][0]) * (k / n), pts[i][1] + (pts[i + 1][1] - pts[i][1]) * (k / n)]);
+      const L = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+      const n = Math.max(1, Math.round(L / Math.max(1.2, h * 0.75)));
+      for (let k = 0; k < n; k++) {
+        const t = (k + 0.5) / n, x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t + (r() - 0.5) * h * 0.15, z = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t + (r() - 0.5) * h * 0.15;
+        const k2 = 0.85 + r() * 0.3;
+        (r() < 0.55 ? a : b).push({ x, y: terrain.heightAt(x, z) - 0.1, z, h: h * k2, rot: r() * 6.28, tint: new THREE.Color(1.2 + r() * 0.15, 1.32 + r() * 0.12, 1.0 + r() * 0.1) });
+      }
     }
-    return out;
-  }, [pts, h]);
-  const geo = useMemo(() => leafCloud({ center: [0, 0.52, 0], radii: [0.5, 0.48, 0.5], count: 46, size: 0.38, seed: 5 }), []);   // photo leaf cards
-  const leafMat = useLeafMaterial(0.01);
-  useLayoutEffect(() => {
-    const m = ref.current; if (!m) return;
-    const o = new THREE.Object3D(), r = rng(f.id.length);
-    spots.forEach(([x, z], i) => { const s = 0.85 + r() * 0.3; o.position.set(x, terrain.heightAt(x, z) - 0.1, z); o.scale.set(h * 0.7 * s, h * s, h * 0.7 * s); o.rotation.set(0, r() * 6, 0); o.updateMatrix(); m.setMatrixAt(i, o.matrix); });
-    m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere();
-  }, [spots, h, terrain, f.id]);
+    return { a, b };
+  }, [pts, h, terrain, f.id]);
+  const hit = useMemo(() => ribbon(pts, Math.max(1.5, h * 0.6), terrain.heightAt, h * 0.4, () => new THREE.Color(1, 1, 1)), [pts, h, terrain]);
   return <group>
-    <instancedMesh ref={ref} args={[geo, leafMat, spots.length]} castShadow receiveShadow onClick={(e) => { e.stopPropagation(); sel.onSelect(key); }} />
+    <ImpostorSet name="broadleaf_c" items={sets.a} shadows />
+    <ImpostorSet name="broadleaf_b" items={sets.b} shadows />
+    <mesh geometry={hit} onClick={(e) => { e.stopPropagation(); sel.onSelect(key); }}><meshBasicMaterial transparent opacity={0} depthWrite={false} /></mesh>
     {sel.selected === key && <Line points={pts.map(([x, z]) => [x, terrain.heightAt(x, z) + h + 0.4, z] as [number, number, number])} color="#2f7cf6" lineWidth={3} />}
   </group>;
 }
@@ -365,6 +488,15 @@ function Pond({ f, pts, sel }: { f: Feature; pts: [number, number][]; sel: Sel }
     <mesh geometry={water} position={[0, 0.06, 0]}><meshStandardMaterial color="#3d6f7c" roughness={0.08} metalness={0.25} envMapIntensity={1.2} /></mesh>
     {sel.selected === key && <Line points={[...pts, pts[0]].map(([x, z]) => [x, 0.3, z] as [number, number, number])} color="#2f7cf6" lineWidth={3} />}
   </group>;
+}
+
+/** Impostor of an orchard tree. Fruit is drawn only in the full-season view (month 0): there is no sourced fruiting
+ *  calendar, so with a month selected the trees are shown without fruit. Colour by species, red or orange. */
+const FRUIT_RED = new Set(["apple", "cherry", "plum"]), FRUIT_ORANGE = new Set(["peach", "apricot", "citrus"]);
+function orchardImpostor(species: string, month: number) {
+  if (species === "olive") return "olive_a";
+  const fruit = !month && FRUIT_RED.has(species) ? "fruit_red" : !month && FRUIT_ORANGE.has(species) ? "fruit_orange" : null;
+  return fruit && IMPOSTORS[fruit] ? fruit : "broadleaf_b";
 }
 
 /** Rows inside a polygon along its longest edge; spacing from the farmer or an indicative layout. */
@@ -400,6 +532,18 @@ function Planting({ f, pts, model, month, sel, quality }: { f: Feature; pts: [nu
   const step = (vine ? f.props.plant_spacing_m : f.props.tree_spacing_m) ?? (vine ? 1 : Math.max(1.5, h * 0.7));
   const { pts: plants, angle } = useMemo(() => rowsInPolygon(pts, rowGap, step), [pts, rowGap, step]);
   const limited = plants.slice(0, 4000);
+  const trees = useMemo<ImpostorItem[] | null>(() => {
+    if (vine) return null;
+    const r = rng(f.id.length * 13 + 1);
+    return limited.map(([x, z]) => ({ x, y: 0, z, h: h * (0.88 + r() * 0.24), rot: r() * 6.28,
+      tint: new THREE.Color(0.98 + r() * 0.1, 1.24 + r() * 0.1, 0.9 + r() * 0.08) }));   // greener leaves; red fruit keeps its hue
+  }, [limited, h, vine, f.id]);
+  const area = useMemo(() => shapeXZ(pts), [pts]);
+  if (trees) return <group>
+    <ImpostorSet name={orchardImpostor(f.props.species, month)} items={trees} shadows={quality.plantShadows} />
+    <mesh geometry={area} position={[0, 0.05, 0]} onClick={(e) => { e.stopPropagation(); sel.onSelect(key); }}><meshBasicMaterial transparent opacity={0} depthWrite={false} /></mesh>
+    {sel.selected === key && <Line points={[...pts, pts[0]].map(([x, z]) => [x, 0.4, z] as [number, number, number])} color="#2f7cf6" lineWidth={3} />}
+  </group>;
   // the vine model is planar along X: turn every plant along the row (CropField rotates by index, so use a wrapper group per row angle)
   return <group onClick={(e) => { e.stopPropagation(); sel.onSelect(key); }}>
     <CropField model={model} pts={limited} offset={[0, 0]} scale={h} spacing={Math.max(rowGap, step)} seed={f.id.length} stage={month ? "growing" : "mature"}
@@ -443,7 +587,7 @@ export function Structures({ features, farmRef: ref, terrain, month, selected, o
       ));
     const y = terrain.heightAt(pts[0][0], pts[0][1]);
     let node: React.ReactNode = null;
-    if (f.kind === "building") node = <Building f={f} p={pts[0]} y={y} sel={sel} />;
+    if (f.kind === "building") node = (f.props.type ?? "casale") === "casale" ? <CasaleBuilding f={f} p={pts[0]} y={y} sel={sel} /> : <Building f={f} p={pts[0]} y={y} sel={sel} />;
     else if (f.kind === "tank") node = <Tank f={f} p={pts[0]} y={y} sel={sel} />;
     else if (f.kind === "well") node = <Well f={f} p={pts[0]} y={y} sel={sel} />;
     else if (f.kind === "sprinkler") node = <Sprinkler f={f} p={pts[0]} y={y} sel={sel} animate={quality.wind ?? true} />;

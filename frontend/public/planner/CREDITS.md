@@ -25,3 +25,27 @@ Downloaded 2026-11-22 from https://dl.polyhaven.org with the user's approval (fi
 sets and 2 shrub models, about 20 MB; then 8 leaf/bark maps, 2.9 MB; all approved the same day).
 Crops, rows, greenhouses, tanks, orchard/vineyard trees and woods are procedural geometry built in code. Poly Haven tree
 photoscans (0.3-17 million triangles each) were not used: too heavy for a browser scene with hundreds of trees.
+
+## Impostors (impostors/, Nov 2026)
+
+Baked offline in Blender 5.3 / Cycles with `tools/blender/bake_impostor.py` (64 views of the upper hemisphere,
+colour + normal atlases, WebP). Each tree is drawn as one quad at runtime, so the full photoscans can be used.
+
+| File | Source | Use |
+|---|---|---|
+| broadleaf_a_* | Poly Haven "Tree Small 02" (model, CC0, 1.15 M polygons) | woods and field trees (scenery) |
+| broadleaf_b_* | Poly Haven "Island Tree 01" (model, CC0, 0.8 M polygons) | woods, hedgerows (scenery and hedge features) |
+| broadleaf_c_* | Poly Haven "Island Tree 03" (model, CC0, 1.06 M polygons) | woods, hedgerows, fruit orchards (drawing of a fruit tree) |
+| olive_a_* | Poly Haven "Island Tree 02" (model, CC0, 0.54 M polygons) | olive groves of the countryside, olive orchards |
+| fruit_red_*, fruit_orange_* | Poly Haven "Island Tree 01" + AgroAI fruit spheres (bake option FRUIT) | orchards in the full-season view (apple/cherry/plum red, peach/apricot/citrus orange) |
+| crop_lettuce, crop_cabbage, crop_tomato(_green), crop_eggplant(_green) | AgroAI procedural plants, `tools/blender/make_crops.py` | crop beds (fruit only in the mature variant) |
+
+The four Poly Haven models (blend, 1k textures, about 320 MB) were downloaded on 2026-11-24 with the user's approval
+for baking only; they are not shipped. The atlases add about 13 MB to `public/planner`.
+
+## Farmhouse and horizon (Nov 2026)
+
+| File | Source | Use |
+|---|---|---|
+| buildings/casale.glb | AgroAI, modelled in Blender by `tools/blender/make_casale.py` (ambient occlusion baked in Cycles) | farm element «Edificio – casale» (scaled to the declared size; textured with the CC0 sets above) |
+| horizon/horizon.webp | AgroAI, rendered in Blender/Cycles by `tools/blender/make_horizon.py`, lit with the Kloofendal sky above | distant hills beyond the 3D terrain (demonstrative scenery, not real data) |

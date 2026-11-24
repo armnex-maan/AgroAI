@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     identification_possible: float = 0.2
     custom_model_min_confidence: float = 0.6
 
+    # Photoreal render of the Visual Planner (Blender Cycles). Empty = auto-detect Blender / ~/agroai-assets.
+    render_blender: str = ""
+    render_assets: str = ""
+    render_allow_remote: bool = False      # the render runs a local process on the GPU: localhost only by default
+
     mqtt_broker_host: str = "localhost"
     mqtt_broker_port: int = 1883
 
