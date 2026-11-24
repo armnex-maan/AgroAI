@@ -94,6 +94,9 @@ export function canopyTexture(crop: string, group: string, stage: Stage, band: n
       }
     }
   };
+  // bottom layer: an opaque under-storey across the band, so the bed never shows bare soil from a distance
+  // (alpha-tested mipmaps would otherwise thin the foliage away)
+  if (layer === 0) { g.fillStyle = dark; g.fillRect(x0, 0, bw, H); }
   if (look.blades) {
     // grasses and alliums: upright blades seen from above = fine strokes
     g.lineCap = "round";
@@ -146,4 +149,14 @@ export function carpetUV(g: THREE.BufferGeometry, alongY: boolean, firstRow: num
   }
   g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   return g;
+}
+
+/** Alpha-tested foliage keeps its coverage at a distance (mipmaps average the alpha below the threshold). */
+export function sharpAlpha<T extends THREE.Material>(m: T): T {
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace("#include <alphatest_fragment>",
+      "diffuseColor.a = clamp((diffuseColor.a - 0.5) / max(fwidth(diffuseColor.a), 0.0001) + 0.5, 0.0, 1.0);\n#include <alphatest_fragment>");
+  };
+  m.customProgramCacheKey = () => "sharp-alpha";
+  return m;
 }

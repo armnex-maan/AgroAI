@@ -7,6 +7,7 @@ import "./styles/theme.css";
 import "./styles/global.css";
 import "./styles/home.css";
 import "./styles/rotation.css";
+import "./styles/planner.css";
 
 const client = new QueryClient({
   defaultOptions: { queries: { refetchInterval: 5000, staleTime: 2000 } },

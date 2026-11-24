@@ -15,6 +15,8 @@ import { Shrubs } from "./Shrubs";
 import { FOLIAGE_WIND } from "./foliage";
 import { CROP_WIND } from "../cropLibrary";
 import { FarmZone, TerrainSource } from "./terrain";
+import { GradeEffect } from "./grade";
+import { Horizon } from "./Horizon";
 
 export interface EngineCtx { terrain: TerrainSource; quality: QualityProfile; zone: FarmZone }
 const Ctx = createContext<EngineCtx | null>(null);
@@ -26,8 +28,13 @@ export const useEngine = () => useContext(Ctx);
 export const SKY_HDRI = "/planner/kloofendal_48d_partly_cloudy_puresky_2k.hdr";
 const SKY_SUN = new THREE.Vector3(0.555, 0.742, 0.377).normalize();
 export const SKY_ROTATION = -1.75;
-export const SUN_DIR = SKY_SUN.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), SKY_ROTATION);
-export const HAZE = "#c9d3dc";
+/** Shadow-casting sun: same azimuth as the sky's sun but lower (32 degrees, late-morning light) for long, readable
+ *  shadows. The sun disc of the HDRI is never in view from the planner's aerial cameras. */
+const SUN_ELEVATION = THREE.MathUtils.degToRad(32);
+const SUN_AZ = SKY_SUN.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), SKY_ROTATION).setY(0).normalize();
+export const SUN_DIR = new THREE.Vector3(SUN_AZ.x * Math.cos(SUN_ELEVATION), Math.sin(SUN_ELEVATION), SUN_AZ.z * Math.cos(SUN_ELEVATION));
+export const HAZE = "#d3e0ea";
+export const FOG = { near: 150, far: 10500 };
 
 function Sun({ zone, quality }: { zone: FarmZone; quality: QualityProfile }) {
   const light = useRef<THREE.DirectionalLight>(null);
@@ -42,7 +49,7 @@ function Sun({ zone, quality }: { zone: FarmZone; quality: QualityProfile }) {
   }, [scene, target, zone.cx, zone.cz]);
   const d = zone.size * 1.5 + 200;
   return (
-    <directionalLight ref={light} position={[zone.cx + SUN_DIR.x * d, SUN_DIR.y * d, zone.cz + SUN_DIR.z * d]} intensity={3.2} color="#ffe9c8"
+    <directionalLight ref={light} position={[zone.cx + SUN_DIR.x * d, SUN_DIR.y * d, zone.cz + SUN_DIR.z * d]} intensity={4.4} color="#ffe7c4"
       castShadow={quality.shadowMap > 0} shadow-mapSize={[quality.shadowMap || 512, quality.shadowMap || 512]} shadow-bias={-0.0004} shadow-normalBias={0.6}
       shadow-camera-left={-half} shadow-camera-right={half} shadow-camera-top={half} shadow-camera-bottom={-half}
       shadow-camera-near={1} shadow-camera-far={d * 2.2} />
@@ -100,15 +107,19 @@ export function FarmEngine({ zone, terrain, quality, exclude, grassTex, topView,
 }) {
   const S = terrainExtent(zone);
   const ctx = useMemo(() => ({ terrain, quality, zone }), [terrain, quality, zone]);
+  const grade = useMemo(() => new GradeEffect(), []);
+  useEffect(() => () => grade.dispose(), [grade]);
   return (
     <Ctx.Provider value={ctx}>
-      {!topView && <fog attach="fog" args={[HAZE, zone.size * 2 + 300, S * 0.6]} />}
+      {/* linear fog close to the aerial haze baked into the horizon panorama, so the 3D terrain edge blends into it */}
+      {!topView && <fog attach="fog" args={[HAZE, FOG.near, FOG.far]} />}
       {topView && <color attach="background" args={["#e9efe6"]} />}
-      <Environment files={SKY_HDRI} background={!topView} environmentIntensity={0.75} backgroundIntensity={1}
+      <Environment files={SKY_HDRI} background={!topView} environmentIntensity={0.8} backgroundIntensity={1}
         backgroundRotation={[0, SKY_ROTATION, 0]} environmentRotation={[0, SKY_ROTATION, 0]} />
-      <hemisphereLight args={["#dfeeff", "#6b5a3c", 0.3]} />
+      <hemisphereLight args={["#e4f0ff", "#5d6b3c", 0.35]} />
       <Sun zone={zone} quality={quality} />
       <Terrain zone={zone} terrain={terrain} quality={quality} grassTex={grassTex} />
+      {!topView && <Horizon radius={zone.size * 30 + 2000} />}
       {!topView && <Grass zone={zone} terrain={terrain} quality={quality} exclude={exclude} />}
       {!topView && <Forest zone={zone} terrain={terrain} quality={quality} />}
       {!topView && quality.shrubs > 0 && <Shrubs zone={zone} terrain={terrain} quality={quality} />}
@@ -119,18 +130,20 @@ export function FarmEngine({ zone, terrain, quality, exclude, grassTex, topView,
         <EffectComposer multisampling={4} enableNormalPass={false}>
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
           <HueSaturation saturation={0.06} />
-          <BrightnessContrast brightness={0.01} contrast={0.08} />
-          <Vignette offset={0.32} darkness={0.42} />
+          <BrightnessContrast brightness={0.02} contrast={0.12} />
+          <primitive object={grade} />
+          <Vignette offset={0.38} darkness={0.32} />
         </EffectComposer>
       )}
       {quality.ao && !topView && (
         <EffectComposer multisampling={4} enableNormalPass={false}>
-          <N8AO aoRadius={3} distanceFalloff={1.2} intensity={2.2} halfRes quality="performance" />
-          <Bloom luminanceThreshold={0.92} luminanceSmoothing={0.2} intensity={0.35} mipmapBlur />
+          <N8AO aoRadius={quality.level === "ultra" ? 4 : 3} distanceFalloff={1.2} intensity={2.4} halfRes={quality.level !== "ultra"} quality={quality.level === "ultra" ? "medium" : "performance"} />
+          <Bloom luminanceThreshold={0.9} luminanceSmoothing={0.25} intensity={0.3} mipmapBlur />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-          <HueSaturation saturation={0.06} />
-          <BrightnessContrast brightness={0.01} contrast={0.08} />
-          <Vignette offset={0.32} darkness={0.42} />
+          <HueSaturation saturation={0.04} />
+          <BrightnessContrast brightness={0.02} contrast={0.14} />
+          <primitive object={grade} />
+          <Vignette offset={0.38} darkness={0.32} />
         </EffectComposer>
       )}
       <ToneMap composer={(quality.ao || quality.level === "medium") && !topView} />

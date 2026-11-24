@@ -9,7 +9,7 @@
   drawn at 0.3 m and the panel says the height is not available.
 - Colours: crop colour from `types.ts cropColor`, natural tints for leaves (greens) and fruits (real colours).
 - Assets in `frontend/public/planner` are CC0 from Poly Haven (see CREDITS.md): sky, PBR textures (soil, gravel, roof tiles,
-  plaster, corrugated iron, planks) and two shrub photoscans. Photoscanned trees are too heavy (millions of triangles). Any new download needs the user's
+  plaster, corrugated iron, planks) and two shrub photoscans. Photoscanned trees are used only through baked impostors (below). Any new download needs the user's
   approval (file, source, size) and a CREDITS line. Prefer < 2 MB per file; no 50+ MB models.
 
 ## Crop library (phase 2)
@@ -37,3 +37,21 @@
   leaf cards scattered on that mesh's own surface (area-weighted), facing like it and taking its vertex colour, so the
   botanical shape and the crop colour stay the model's. Styles: "leaf" (single leaves: lettuce, cabbage, cucurbits),
   "spray" (leafy twigs: solanaceae, potato, bean, carrot, orchards, vines); cereals/maize keep their blades.
+
+## Impostors (Nov 2026, Blender-baked)
+- `engine/impostor.ts`: hemi-octahedral impostors (8 x 8 frames). One quad per tree/plant; the vertex shader picks the
+  frame nearest to the view and orients the quad like that frame's camera; the fragment shader reads colour (albedo x AO
+  from a white-sky Cycles render), coverage (alpha, sharpened with fwidth) and an object-space normal, so the quad takes
+  sun, fog and post like any mesh. `customDepthMaterial` makes real tree-shaped shadows. Impostors do not receive shadows
+  (the baked AO already shades them; receiving would self-shadow the quad).
+- Baked assets in `public/planner/impostors` + manifest `engine/impostors.json`; pipeline in `tools/blender/` (README).
+- Crops with an impostor (`cropImpostors.ts`): lettuce, cabbage, tomato(+_green), eggplant(+_green). Height = FAO-56 x
+  exaggeration x stage; `_green` (no fruit) before maturity. They have their own budget (`quality.cropImpostors`, x3 per bed
+  as headroom) and set the exaggeration factor; GLB beds then grow their spacing to fit their own budget (`fitBudget`).
+  Other crops keep the GLB + canopy-carpet pipeline.
+- Orchards (non-vine) and hedges are impostor trees (broadleaf_c / olive_a, broadleaf_b/c) with an invisible hit area for
+  selection; vineyards keep the 3D vines and trellis.
+- Orchard fruit: `fruit_red` / `fruit_orange` impostors (Island Tree 01 + fruit spheres on the crown shell) only in the
+  full-season view (month 0); with a month selected orchards use `broadleaf_b` (no sourced fruiting calendar).
+- Farm tracks: roads are drawn with `trackRibbon` + a generated track texture (wheel ruts, grass strip, ragged verges);
+  sprinkler water is `engine/WaterSpray.tsx` (GPU points, animation only).

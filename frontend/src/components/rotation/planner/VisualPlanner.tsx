@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Loader, PerformanceMonitor } from "@react-three/drei";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,6 +17,8 @@ const CropCatalog = lazy(() => import("./CropCatalog"));
 const AiGenerator = lazy(() => import("./AiGenerator"));
 import type { AiVariant } from "./AiGenerator";
 import { IrrigationPanel } from "./IrrigationPanel";
+import { useCropThumbs } from "./thumbs";
+import { RenderPanel, useRenderStatus } from "./RenderPanel";
 import { detectQuality, loadQuality, lower, PROFILES, QualityChoice, QualityLevel, storeQuality } from "./engine/quality";
 
 type Mode = "3d" | "2d" | "sat";
@@ -53,7 +55,13 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
   const [autoLevel, setAutoLevel] = useState<QualityLevel>(detectQuality);
   const [lowered, setLowered] = useState(false);
   const [terrainLabel, setTerrainLabel] = useState<string | null>(null);
+  // the frame-rate watchdog starts only once the scene is loaded and its shaders compiled (first seconds are slow anyway)
+  const [monitorOn, setMonitorOn] = useState(false);
+  useEffect(() => { setMonitorOn(false); const t = setTimeout(() => setMonitorOn(true), 9000); return () => clearTimeout(t); }, [autoLevel, qChoice, mode]);
   const [catalog, setCatalog] = useState(false);
+  const [rendering, setRendering] = useState(false);
+  const [renderBusy, setRenderBusy] = useState(false);
+  const renderQ = useRenderStatus();
   const [month, setMonth] = useState(0);   // 0 = full season: every crop at its mature stage
   const calQ = useQuery({ queryKey: ["rotation-calendar"], refetchInterval: false, staleTime: Infinity,
     queryFn: () => api.get<{ note: string; crops: Record<string, Calendar & { name: string }> }>("/api/v1/rotation/calendar") });
@@ -136,8 +144,15 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
   const farmV = useMemo<FarmData>(() => (Object.keys(layouts).length
     ? { ...farm, plots: farm.plots.map((p) => (layouts[p.id] ? { ...p, sections: layouts[p.id] } : p)) } : farm), [farm, layouts]);
   const views = useMemo(() => buildFarm(farmV, year, proposals, edits), [farmV, year, proposals, edits]);
-  const exag = useMemo(() => plantFactor(views, byKey, quality.plants), [views, byKey, quality.plants]);
+  const exag = useMemo(() => plantFactor(views, byKey, quality.plants, quality.cropImpostors), [views, byKey, quality.plants, quality.cropImpostors]);
   const perYear = useMemo(() => years.map((y) => ({ y, views: y === year ? views : buildFarm(farmV, y, proposals, edits) })), [years, year, views, farmV, proposals, edits]);
+
+  const thumbList = useMemo(() => {
+    const seen = new Map<string, { crop: string; group: string }>();
+    for (const { views: vs } of perYear) for (const v of vs) for (const b of v.beds) if (b.crop) seen.set(b.crop.crop, { crop: b.crop.crop, group: byKey[b.crop.crop]?.group ?? "frutto" });
+    return [...seen.values()];
+  }, [perYear, byKey]);
+  const thumbs = useCropThumbs(thumbList);
 
   const sel = useMemo(() => {
     for (const v of views) for (const b of [...v.beds, ...v.others]) if (b.key === selected) return { bed: b, view: v };
@@ -326,12 +341,30 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
     setMsg(`Proposta «${v.title}» in prova nel 3D: premi «Salva progetto» per tenerla o «Annulla» per tornare com'era.`);
   };
 
+  // development only: select a part by plot name from scripts (visual checks)
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const w = window as unknown as { __plannerSelect?: (plot: string) => void };
+    w.__plannerSelect = (name) => { const v = views.find((x) => x.plot.name.toLowerCase().includes(name.toLowerCase())); if (v?.beds[0]) setSelected(v.beds[0].key); };
+    return () => { delete w.__plannerSelect; };
+  }, [views]);
+
+  // immersive: when the planner opens, bring it to fill the window under the app bar
+  useEffect(() => { const t = setTimeout(() => wrap.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120); return () => clearTimeout(t); }, []);
+
+  const renderLabel = useMemo(() => ({ farm: farm.name, year, exag }), [farm.name, year, exag]);
+  const renderExport = useMemo(() => () => {
+    if (!scene.current) return Promise.reject(new Error("La scena 3D non è pronta."));
+    return scene.current.exportRender();
+  }, []);
+
   const proposedCount = views.reduce((a, v) => a + v.beds.filter((b) => b.crop?.proposed).length, 0);
   const editedCount = Object.values(edits).reduce((a, y) => a + Object.keys(y).length, 0) + Object.keys(layouts).length;
   const fullscreen = () => { const el = wrap.current; if (!el) return; document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen?.(); };
 
   return (
-    <div className="vp" ref={wrap}>
+    <div className="vp vp-dark" ref={wrap}>
+      <div className="vp-stage">
       <div className="vp-top">
         <label className="vp-year"><Icon name="calendar" size={16} />
           <select value={year} onChange={(e) => { setYear(+e.target.value); setSelected(null); }}>
@@ -345,38 +378,43 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
             </button>
           ))}
         </div>
-        <label className="vp-year" title="Fase di crescita dal calendario indicativo">
+        <label className="vp-year vp-minor" title="Fase di crescita dal calendario indicativo">
           <Icon name="sprout" size={15} />
           <select value={month} onChange={(e) => setMonth(+e.target.value)}>
             <option value={0}>Piena stagione</option>
             {MONTHS.map((m, i) => <option key={m} value={i + 1}>Mese: {m}</option>)}
           </select>
         </label>
-        <label className="vp-year vp-quality" title="Qualità grafica">
+        <label className="vp-year vp-minor vp-quality" title="Qualità grafica">
           <Icon name="settings" size={15} />
           <select value={qChoice} onChange={(e) => { const v = e.target.value as QualityChoice; setQChoice(v); storeQuality(v); setLowered(false); }}>
             <option value="auto">Qualità: automatica ({PROFILES[autoLevel].label})</option>
+            <option value="ultra">Qualità: ultra</option>
             <option value="high">Qualità: alta</option>
             <option value="medium">Qualità: media</option>
             <option value="battery">Risparmio batteria</option>
           </select>
         </label>
         <span className="spacer" />
+        {mode === "3d" && (
+          <button className="btn vp-render-btn" disabled={rendering || !renderQ.data?.available}
+            title={renderQ.data?.available ? "Immagine fotorealistica di questa inquadratura, fatta con Blender Cycles" : renderQ.data?.reason ?? "Render non disponibile"}
+            onClick={() => setRendering(true)}><Icon name="camera" size={16} />Render foto</button>
+        )}
         <button className="btn vp-save" disabled={save.isPending} onClick={() => save.mutate()}>
-          <Icon name="check" size={15} />{save.isPending ? "Salvo…" : "Salva progetto"}{editedCount + proposedCount > 0 && <span className="vp-dot" />}
+          <Icon name="save" size={17} />{save.isPending ? "Salvo…" : "Salva progetto"}{editedCount + proposedCount > 0 && <span className="vp-dot" />}
         </button>
       </div>
 
-      <div className="vp-body">
-        <div className="vp-stage">
+        <div className={`vp-scene ${mode === "sat" ? "sat" : ""}`}>
           {mode === "sat" ? (
             <FarmMap farm={farm} draw={draw} onDrawn={onDrawn} onOpen={(id) => onOpen(id, "plan")} />
           ) : (
             <>
-              <Canvas key={quality.level} dpr={quality.dpr} shadows={quality.shadowMap > 0 ? "soft" : false} frameloop={quality.frameloop}
+              <Canvas key={quality.level} dpr={quality.dpr} shadows={quality.shadowMap > 0 ? "soft" : false} frameloop={renderBusy ? "demand" : quality.frameloop}
                       gl={{ antialias: true, powerPreference: quality.level === "battery" ? "low-power" : "high-performance" }}
                       onPointerMissed={() => setSelected(null)} className="vp-canvas">
-                {qChoice === "auto" && autoLevel !== "battery" && (
+                {qChoice === "auto" && autoLevel !== "battery" && monitorOn && (
                   <PerformanceMonitor flipflops={1} onDecline={() => { setAutoLevel((l) => lower(l)); setLowered(true); }} />
                 )}
                 <Suspense fallback={null}>
@@ -397,7 +435,7 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
                 </div>
               </div>
               <div className="vp-tools">
-                <button title="Seleziona e guarda" className={editOn ? "" : "on"} onClick={() => setEditOn(false)}><Icon name="hand" size={17} /></button>
+                <button title="Seleziona e guarda" className={editOn ? "" : "on"} onClick={() => setEditOn(false)}><Icon name="cursor" size={18} /></button>
                 <button title="Modifica forme: sposta e ridimensiona parti ed elementi" className={editOn ? "on" : ""}
                   onClick={() => { setEditOn((v) => !v); if (!editOn) setMsg("Modifica: tocca una parte o un elemento, poi trascina la maniglia gialla per spostarlo e quelle bianche per cambiarne le misure."); }}>
                   <Icon name="move" size={17} /></button>
@@ -406,7 +444,6 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
                 <button title="Storico dell'appezzamento" disabled={!sel} onClick={() => sel && onOpen(sel.view.plot.id, "history")}><Icon name="book" size={17} /></button>
                 <button title="Aggiungi edificio, cisterna, strada, frutteto…" className={palette || placing ? "on" : ""} onClick={() => setPalette((v) => !v)}><Icon name="plus" size={17} /></button>
                 <button title="Libreria colture 3D" onClick={() => setCatalog(true)}><Icon name="sprout" size={17} /></button>
-                <button title="Schermo intero" onClick={fullscreen}><Icon name="compass" size={17} /></button>
               </div>
               {palette && featQ.data && <Palette kinds={featQ.data.kinds} onPick={startPlacing} onClose={() => setPalette(false)}
                 sections={SECTION_KINDS.map((k) => ({ kind: k, label: KIND_LABEL[k], icon: SECTION_ICON[k] }))} onPickSection={(k) => startSection(k as Kind)} />}
@@ -433,7 +470,11 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
                 <span ref={zoomLabel} className="vp-pct">100%</span>
                 <button title="Avvicina" onClick={() => scene.current?.zoomBy(1.25)}><Icon name="plus" size={15} /></button>
                 <button title="Vista iniziale" onClick={() => scene.current?.reset()}><Icon name="locate" size={15} /></button>
+                <button title="Schermo intero" onClick={fullscreen}><Icon name="expand" size={15} /></button>
               </div>
+              {rendering && mode === "3d" && (
+                <RenderPanel exportScene={renderExport} label={renderLabel} onClose={() => setRendering(false)} onBusy={setRenderBusy} />
+              )}
               <div className="vp-notes">
                 {exag > 1 && mode === "3d" && <span>Piante ingrandite ×{exag} per vederle a questa distanza</span>}
                 {proposedCount > 0 && <span className="prop">Proposta di AgroAI non salvata</span>}
@@ -453,7 +494,7 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
           {aiOpen ? <Suspense fallback={<div className="tiny muted">Carico il generatore…</div>}>
               <AiGenerator farm={farm} onClose={() => setAiOpen(false)} onApply={applyAi} /></Suspense>
             : selFeature && featQ.data ? <FeatureProps feature={selFeature} data={featQ.data} onClose={() => setSelected(null)} onFocus={() => focusFeature(selFeature)} />
-            : sel ? <Props sel={sel} year={year} season={season} byKey={byKey} farm={farm} views={perYear} month={month} calendar={calendar}
+            : sel ? <Props sel={sel} thumb={sel.bed.crop ? thumbs[`${sel.bed.crop.crop}|${byKey[sel.bed.crop.crop]?.group ?? "frutto"}`] : undefined} year={year} season={season} byKey={byKey} farm={farm} views={perYear} month={month} calendar={calendar}
                          busy={change.isPending} onChange={(crop) => change.mutate({ view: sel.view, bed: sel.bed, crop })}
                          onMove={(target) => sel.bed.crop && change.mutate({ view: sel.view, bed: target, crop: sel.bed.crop.crop, other: { bed: sel.bed, crop: target.crop?.crop ?? null } })}
                          section={sel.bed.sectionId ? sectionsOf(sel.view.plot.id).find((x) => x.id === sel.bed.sectionId) ?? null : null}
@@ -481,13 +522,6 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
             </div>
           )}
         </aside>
-      </div>
-
-      {catalog && (
-        <Suspense fallback={<div className="card muted">Carico la libreria…</div>}>
-          <CropCatalog crops={farm.crops} onClose={() => setCatalog(false)} />
-        </Suspense>
-      )}
       <div className="vp-bottom">
         <div className="card vp-timeline">
           <div className="row"><b>Piano di rotazione ({season}–{season + 4})</b><span className="spacer" />
@@ -495,29 +529,47 @@ export default function VisualPlanner({ farm, onOpen, draw, onDraw, onDrawn }: {
               <Icon name="shuffle" size={13} />Confronta anni</button></div>
           <div className="vp-years">
             {perYear.map(({ y, views: vs }, i) => {
-              const agg = new Map<string, { c: string; a: number }>();
+              const agg = new Map<string, { c: string; g: string; n: string; a: number }>();
               let proposed = false, total = 0;
               vs.forEach((v) => v.beds.forEach((b) => { if (!b.crop) return; total += b.area; proposed ||= !!b.crop.proposed;
-                const e = agg.get(b.crop.crop) ?? { c: cropColor(b.crop.crop, b.crop.family), a: 0 }; e.a += b.area; agg.set(b.crop.crop, e); }));
+                const e = agg.get(b.crop.crop) ?? { c: cropColor(b.crop.crop, b.crop.family), g: byKey[b.crop.crop]?.group ?? "frutto", n: shortName(b.crop.name), a: 0 };
+                e.a += b.area; agg.set(b.crop.crop, e); }));
               const saved = farm.plots.some((p) => p.plans.some((x) => x.year === y));
+              const tag = i === 0 ? "hist" : proposed ? "prop" : saved ? "" : "none";
               return (
-                <button key={y} className={`vp-yr ${y === year ? "on" : ""}`} onClick={() => { setYear(y); setSelected(null); }}>
-                  <b>{y}</b><small>{i === 0 ? "Situazione attuale" : `Rotazione ${i}`}</small>
-                  <span className="vp-bar">{total ? [...agg.values()].map((e, k) => <i key={k} style={{ background: e.c, flex: e.a }} />) : <i style={{ flex: 1, background: "#d9dfda" }} />}</span>
-                  <span className="vp-tag">{i === 0 ? "storico" : proposed ? "proposta" : saved ? "salvato" : "vuoto"}</span>
-                </button>
+                <Fragment key={y}>
+                  {i > 0 && <span className="vp-arrow" aria-hidden><Icon name="arrow-right" size={18} /></span>}
+                  <button className={`vp-yr ${y === year ? "on" : ""}`} onClick={() => { setYear(y); setSelected(null); }}
+                          title={total ? [...agg.values()].map((e) => e.n).join(", ") : "Nessuna coltura"}>
+                    <b>{y}</b><small>{i === 0 ? "Situazione attuale" : `Rotazione ${i}${proposed ? " · proposta" : saved ? "" : " · vuoto"}`}</small>
+                    <span className={`vp-yr-pic ${total ? "" : "empty"}`}>
+                      {[...agg.entries()].sort((a, b) => b[1].a - a[1].a).slice(0, 4).map(([k, e]) => (
+                        <i key={k} style={{ flex: e.a, backgroundColor: e.c, backgroundImage: thumbs[`${k}|${e.g}`] ? `url(${thumbs[`${k}|${e.g}`]})` : undefined }} />
+                      ))}
+                    </span>
+                    <span className={`vp-yr-tag ${tag}`} title={i === 0 ? "Storico" : proposed ? "Proposta non salvata" : "Piano salvato"}>
+                      <Icon name={proposed && i > 0 ? "spark" : "check"} size={11} stroke={3} /></span>
+                  </button>
+                </Fragment>
               );
             })}
           </div>
         </div>
         <Stats farm={farm} views={views} year={year} />
       </div>
+      </div>
+
+      {catalog && (
+        <Suspense fallback={<div className="card muted">Carico la libreria…</div>}>
+          <CropCatalog crops={farm.crops} onClose={() => setCatalog(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
 
-function Props({ sel, year, season, byKey, farm, views, busy, onChange, onClose, onOpen, month, calendar, onMove, section, onSection, onRemove, editOn, onEdit, demoOn, onDemo }: {
-  sel: { bed: BedView; view: PlotView }; year: number; season: number; byKey: Record<string, any>; farm: FarmData;
+function Props({ sel, thumb, year, season, byKey, farm, views, busy, onChange, onClose, onOpen, month, calendar, onMove, section, onSection, onRemove, editOn, onEdit, demoOn, onDemo }: {
+  sel: { bed: BedView; view: PlotView }; thumb?: string; year: number; season: number; byKey: Record<string, any>; farm: FarmData;
   month: number; calendar: Record<string, Calendar>;
   views: { y: number; views: PlotView[] }[]; busy: boolean; onChange: (crop: string) => void; onClose: () => void;
   onOpen: (plotId: string, tab: "plan" | "editor" | "history") => void;
@@ -533,9 +585,10 @@ function Props({ sel, year, season, byKey, farm, views, busy, onChange, onClose,
   const badge = !c ? null : year === season ? "Coltura attiva" : c.proposed ? "Proposta AgroAI" : c.manual ? "Scelta da te" : "Piano salvato";
   return (
     <div className="vp-props">
-      <div className="row"><b>Proprietà</b><span className="spacer" /><button className="icon-btn" onClick={onClose} aria-label="Chiudi"><Icon name="minus" size={14} /></button></div>
+      <div className="row"><b>Proprietà appezzamento</b><span className="spacer" /><button className="icon-btn" onClick={onClose} aria-label="Chiudi"><Icon name="minus" size={14} /></button></div>
       <div className="vp-crop">
-        <span className="vp-sw" style={{ background: c ? cropColor(c.crop, c.family) : "#cdb68c" }}><Icon name={c ? "sprout" : growing ? "grid" : "map"} size={22} /></span>
+        {c && thumb ? <span className="vp-photo" style={{ backgroundImage: `url(${thumb})` }} />
+          : <span className="vp-sw" style={{ background: c ? cropColor(c.crop, c.family) : "#cdb68c" }}><Icon name={c ? "sprout" : growing ? "grid" : "map"} size={22} /></span>}
         <div style={{ minWidth: 0 }}>
           <b>{c ? shortName(c.name) : growing ? "Nessuna coltura" : bed.name}</b>
           {badge && <span className={`vp-badge ${c?.proposed ? "prop" : ""}`}>{badge}</span>}
@@ -548,7 +601,7 @@ function Props({ sel, year, season, byKey, farm, views, busy, onChange, onClose,
         {c && <><dt>Altezza pianta</dt><dd>{h ? `${h[0] === h[1] ? h[0] : h.join("–")} m` : "n.d."}</dd></>}
         {growing && <><dt>Filari</dt><dd>{section?.row_spacing_m ? rowCount(section) : "non indicati"}</dd></>}
         {growing && section?.row_spacing_m && <><dt>Distanza filari</dt><dd>{Math.round(section.row_spacing_m * 100)} cm</dd></>}
-        {c?.verdict && year > season && <><dt>Stato</dt><dd><span className={`vp-st ${VERDICT[c.verdict][1]}`} />{VERDICT[c.verdict][0]}</dd></>}
+        {c?.verdict && <><dt>Stato coltura</dt><dd><span className={`vp-st ${VERDICT[c.verdict][1]}`} />{VERDICT[c.verdict][0]}</dd></>}
         {c && month > 0 && <><dt>Fase ({MONTHS[month - 1].slice(0, 3).toLowerCase()})</dt><dd>{calendar[c.crop] ? STAGE_LABEL[stageFor(calendar[c.crop], month)] : "n.d."}</dd></>}
       </dl>
       {c?.wholePlot && <div className="tiny muted">Coltura registrata per l'intero appezzamento: la parte esatta non è indicata.</div>}
@@ -671,19 +724,21 @@ function Stats({ farm, views, year }: { farm: FarmData; views: PlotView[]; year:
   const R = 34, C = 2 * Math.PI * R;
   return (
     <div className="card vp-stats">
-      <b>Statistiche terreno {year}</b>
-      <div className="row" style={{ gap: 14, alignItems: "center", marginTop: 8 }}>
-        <div style={{ flex: 1 }}>
-          <div className="tiny muted">Superficie totale</div><div className="vp-big">{fmtArea(total)}</div>
-          <div className="tiny muted" style={{ marginTop: 4 }}>Appezzamenti</div><div className="vp-big">{farm.plots.length}</div>
+      <div className="row" style={{ gap: 8 }}><Icon name="stats" size={18} /><b>Statistiche terreno</b></div>
+      <div className="vp-stats-row">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="vp-stat"><span className="vp-stat-ic"><Icon name="area" size={18} /></span>
+            <div><div className="tiny">Superficie totale</div><div className="vp-big">{fmtArea(total)}</div></div></div>
+          <div className="vp-stat"><span className="vp-stat-ic"><Icon name="grid" size={18} /></span>
+            <div><div className="tiny">Appezzamenti</div><div className="vp-big">{farm.plots.length}</div></div></div>
         </div>
-        <svg width="92" height="92" viewBox="0 0 92 92" aria-label="Superficie per coltura">
-          <circle cx="46" cy="46" r={R} fill="none" stroke="#e3e8e4" strokeWidth="14" />
+        <svg width="96" height="96" viewBox="0 0 92 92" role="img" aria-label={`Superficie per coltura nel ${year}`}>
+          <title>{rows.map((r) => `${r.n} ${total ? Math.round((r.a / total) * 100) : 0}%`).join(", ")}</title>
+          <circle cx="46" cy="46" r={R} fill="none" stroke="rgba(255,255,255,.1)" strokeWidth="14" />
           {rows.map((r, i) => { const len = (r.a / Math.max(total, used)) * C; const el = <circle key={i} cx="46" cy="46" r={R} fill="none" stroke={r.c} strokeWidth="14"
-            strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc} transform="rotate(-90 46 46)" />; acc += len; return el; })}
+            strokeDasharray={`${Math.max(0, len - 1.5)} ${C - Math.max(0, len - 1.5)}`} strokeDashoffset={-acc} transform="rotate(-90 46 46)" />; acc += len; return el; })}
         </svg>
       </div>
-      <div className="vp-legend">{rows.slice(0, 5).map((r) => <span key={r.n}><i style={{ background: r.c }} />{r.n} {total ? Math.round((r.a / total) * 100) : 0}%</span>)}</div>
     </div>
   );
 }
