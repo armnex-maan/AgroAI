@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Env
+.env
+.env.local
+
+# Data
+media/
+*.sqlite
+*.db
+
+# Alembic local
+*.pid
+
+# SQLite side files and local runtime
+*.db-shm
+*.db-wal
+*.db-journal
+backend/install.log
+
+# Firmware / hardware build outputs
+firmware/**/build/
+hardware/**/*-backups/
+hardware/**/fp-info-cache

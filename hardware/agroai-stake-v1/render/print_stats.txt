@@ -1,0 +1,7 @@
+part, material, volume_cm3, est_g (100% infill upper bound)
+body, ASA bianco, 217.9, 277
+roof, ASA verde, 77.0, 98
+collar, ASA verde, 55.9, 71
+tip, ASA/PETG nero, 23.9, 30
+light_pipe, PETG trasparente, 4.0, 5
+TOTAL, , , 481

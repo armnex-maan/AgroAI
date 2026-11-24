@@ -1,0 +1,9 @@
+part, qty, volume_cm3_each, est_PETG_g_total (100% infill upper bound)
+mount_plate, 1, 30.7, 39
+pole_clamp, 2, 20.4, 52
+panel_bracket, 1, 51.9, 66
+shield_plate, 4, 26.9, 137
+shield_top, 1, 32.0, 41
+shield_base_arm, 1, 45.9, 58
+probe_cap, 1, 10.6, 14
+TOTAL (upper bound, 100% infill), , , 406

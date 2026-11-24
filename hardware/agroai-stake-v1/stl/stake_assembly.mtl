@@ -1,0 +1,63 @@
+newmtl stake_tube_REF
+Kd 0.330 0.340 0.360
+
+newmtl tip
+Kd 0.220 0.230 0.250
+
+newmtl collar
+Kd 0.300 0.620 0.200
+
+newmtl motor_clamp_REF
+Kd 0.720 0.720 0.750
+
+newmtl erm_motor_REF
+Kd 0.800 0.550 0.200
+
+newmtl body
+Kd 0.940 0.940 0.920
+
+newmtl light_pipe
+Kd 0.550 1.000 0.550
+
+newmtl pcb_REF
+Kd 0.100 0.450 0.220
+
+newmtl esp32s3_module_REF
+Kd 0.750 0.750 0.780
+
+newmtl sx1262_module_REF
+Kd 0.750 0.750 0.780
+
+newmtl charger_ldo_driver_REF
+Kd 0.100 0.100 0.100
+
+newmtl cell_18650_REF
+Kd 0.150 0.350 0.750
+
+newmtl antenna_868_REF
+Kd 0.850 0.650 0.200
+
+newmtl reed_switch_REF
+Kd 0.800 0.800 0.500
+
+newmtl roof
+Kd 0.300 0.620 0.200
+
+newmtl solar_panel_REF
+Kd 0.080 0.130 0.320
+
+newmtl panel_line_x1
+Kd 0.600 0.650 0.750
+
+newmtl panel_line_x2
+Kd 0.600 0.650 0.750
+
+newmtl panel_line_x3
+Kd 0.600 0.650 0.750
+
+newmtl panel_line_y1
+Kd 0.600 0.650 0.750
+
+newmtl panel_line_y2
+Kd 0.600 0.650 0.750
+

@@ -1,0 +1,92 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agroai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agroai_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-agroai}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agroai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./infra/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  api:
+    build: ./backend
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agroai}:${POSTGRES_PASSWORD:-agroai_dev}@db:5432/${POSTGRES_DB:-agroai}
+      REDIS_URL: redis://redis:6379/0
+      API_SECRET: ${API_SECRET:-change-me}
+      DEVICE_HMAC_SECRET: ${DEVICE_HMAC_SECRET:-device-secret}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      SIMULATION_ENABLED: ${SIMULATION_ENABLED:-true}
+      AI_PROVIDER: ${AI_PROVIDER:-none}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - media:/app/media
+
+  worker:
+    build: ./backend
+    command: python -m app.simulation.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agroai}:${POSTGRES_PASSWORD:-agroai_dev}@db:5432/${POSTGRES_DB:-agroai}
+      REDIS_URL: redis://redis:6379/0
+      SIMULATION_ENABLED: ${SIMULATION_ENABLED:-true}
+      SIMULATION_INTERVAL_SECONDS: ${SIMULATION_INTERVAL_SECONDS:-10}
+      SIMULATION_DEFAULT_SCENARIO: ${SIMULATION_DEFAULT_SCENARIO:-healthy}
+    depends_on:
+      api:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+
+  web:
+    build: ./frontend
+    command: npm run dev -- --host 0.0.0.0
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  db_data:
+  media:

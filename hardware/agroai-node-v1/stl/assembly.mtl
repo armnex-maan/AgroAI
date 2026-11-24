@@ -1,0 +1,87 @@
+newmtl pole_pvc_25mm
+Kd 0.850 0.850 0.850
+
+newmtl ip65_box
+Kd 0.550 0.580 0.600
+
+newmtl ip65_box_lid
+Kd 0.700 0.720 0.740
+
+newmtl gland_0
+Kd 0.150 0.150 0.150
+
+newmtl gland_1
+Kd 0.150 0.150 0.150
+
+newmtl gland_2
+Kd 0.150 0.150 0.150
+
+newmtl gland_3
+Kd 0.150 0.150 0.150
+
+newmtl gland_4
+Kd 0.150 0.150 0.150
+
+newmtl antenna_868
+Kd 0.100 0.100 0.100
+
+newmtl solar_panel_6v
+Kd 0.100 0.180 0.420
+
+newmtl soil_moisture_probe
+Kd 0.050 0.350 0.150
+
+newmtl ds18b20_probe
+Kd 0.750 0.750 0.750
+
+newmtl valve_9v_latching
+Kd 0.200 0.200 0.200
+
+newmtl valve_solenoid
+Kd 0.100 0.100 0.100
+
+newmtl drip_line_16mm
+Kd 0.050 0.050 0.050
+
+newmtl pole_clamp_low
+Kd 0.950 0.550 0.100
+
+newmtl pole_clamp_high
+Kd 0.950 0.550 0.100
+
+newmtl mount_plate
+Kd 0.950 0.550 0.100
+
+newmtl panel_bracket
+Kd 0.950 0.550 0.100
+
+newmtl shield_base_arm
+Kd 0.970 0.970 0.950
+
+newmtl shield_plate_0
+Kd 0.970 0.970 0.950
+
+newmtl shield_plate_1
+Kd 0.970 0.970 0.950
+
+newmtl shield_plate_2
+Kd 0.970 0.970 0.950
+
+newmtl shield_plate_3
+Kd 0.970 0.970 0.950
+
+newmtl shield_top
+Kd 0.970 0.970 0.950
+
+newmtl m4_rod_0
+Kd 0.600 0.600 0.600
+
+newmtl m4_rod_1
+Kd 0.600 0.600 0.600
+
+newmtl m4_rod_2
+Kd 0.600 0.600 0.600
+
+newmtl probe_cap
+Kd 0.950 0.550 0.100
+

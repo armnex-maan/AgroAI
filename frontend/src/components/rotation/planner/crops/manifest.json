@@ -1,0 +1,704 @@
+{
+  "generated": "2026-11-22",
+  "note": "Procedural botanical models (AgroAI). Height normalised to 1 m; scale by FAO-56 height.",
+  "crops": {
+    "tomato": {
+      "file": "tomato.glb",
+      "width": 0.684,
+      "tris": {
+        "LOD0": 3226,
+        "LOD1": 288,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "fruit",
+          "flower"
+        ],
+        "LOD1": [
+          "stem",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 390300
+    },
+    "pepper": {
+      "file": "pepper.glb",
+      "width": 0.488,
+      "tris": {
+        "LOD0": 1838,
+        "LOD1": 276,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "fruit",
+          "flower"
+        ],
+        "LOD1": [
+          "stem",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 239120
+    },
+    "eggplant": {
+      "file": "eggplant.glb",
+      "width": 0.648,
+      "tris": {
+        "LOD0": 1444,
+        "LOD1": 116,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "fruit",
+          "flower"
+        ],
+        "LOD1": [
+          "stem",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 179284
+    },
+    "potato": {
+      "file": "potato.glb",
+      "width": 0.966,
+      "tris": {
+        "LOD0": 2884,
+        "LOD1": 100,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "flower"
+        ],
+        "LOD1": [
+          "stem",
+          "leaves"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 331008
+    },
+    "zucchini": {
+      "file": "zucchini.glb",
+      "width": 2.069,
+      "tris": {
+        "LOD0": 1866,
+        "LOD1": 360,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "fruit",
+          "flower"
+        ],
+        "LOD1": [
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 250200
+    },
+    "pumpkin": {
+      "file": "pumpkin.glb",
+      "width": 3.214,
+      "tris": {
+        "LOD0": 2404,
+        "LOD1": 568,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "fruit",
+          "flower"
+        ],
+        "LOD1": [
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 330720
+    },
+    "cabbage": {
+      "file": "cabbage.glb",
+      "width": 2.348,
+      "tris": {
+        "LOD0": 1160,
+        "LOD1": 120,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "leaves",
+          "head"
+        ],
+        "LOD1": [
+          "leaves",
+          "head"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 145876
+    },
+    "lettuce": {
+      "file": "lettuce.glb",
+      "width": 2.605,
+      "tris": {
+        "LOD0": 800,
+        "LOD1": 56,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "leaves"
+        ],
+        "LOD1": [
+          "leaves"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 98004
+    },
+    "carrot": {
+      "file": "carrot.glb",
+      "width": 1.275,
+      "tris": {
+        "LOD0": 1184,
+        "LOD1": 54,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "leaves",
+          "root"
+        ],
+        "LOD1": [
+          "leaves",
+          "root"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 139004
+    },
+    "wheat": {
+      "file": "wheat.glb",
+      "width": 0.477,
+      "tris": {
+        "LOD0": 1848,
+        "LOD1": 104,
+        "LOD0_green": 1848,
+        "LOD1_green": 104,
+        "LOD2": 8,
+        "LOD2_green": 8
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "ear"
+        ],
+        "LOD1": [
+          "stem",
+          "ear"
+        ],
+        "LOD0_green": [
+          "stem",
+          "leaves",
+          "ear"
+        ],
+        "LOD1_green": [
+          "stem",
+          "ear"
+        ],
+        "LOD2": [
+          "stem"
+        ],
+        "LOD2_green": [
+          "stem"
+        ]
+      },
+      "bytes": 436188
+    },
+    "barley": {
+      "file": "barley.glb",
+      "width": 0.461,
+      "tris": {
+        "LOD0": 1848,
+        "LOD1": 104,
+        "LOD0_green": 1848,
+        "LOD1_green": 104,
+        "LOD2": 8,
+        "LOD2_green": 8
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "ear"
+        ],
+        "LOD1": [
+          "stem",
+          "ear"
+        ],
+        "LOD0_green": [
+          "stem",
+          "leaves",
+          "ear"
+        ],
+        "LOD1_green": [
+          "stem",
+          "ear"
+        ],
+        "LOD2": [
+          "stem"
+        ],
+        "LOD2_green": [
+          "stem"
+        ]
+      },
+      "bytes": 436200
+    },
+    "maize": {
+      "file": "maize.glb",
+      "width": 0.901,
+      "tris": {
+        "LOD0": 726,
+        "LOD1": 98,
+        "LOD2": 10
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "cob",
+          "silk",
+          "tassel"
+        ],
+        "LOD1": [
+          "stem",
+          "leaves",
+          "tassel"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 99620
+    },
+    "bean": {
+      "file": "bean.glb",
+      "width": 0.944,
+      "tris": {
+        "LOD0": 1120,
+        "LOD1": 48,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "fruit",
+          "flower"
+        ],
+        "LOD1": [
+          "leaves"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 134876
+    },
+    "pea": {
+      "file": "pea.glb",
+      "width": 0.525,
+      "tris": {
+        "LOD0": 3042,
+        "LOD1": 92,
+        "LOD2": 20
+      },
+      "parts": {
+        "LOD0": [
+          "stem",
+          "leaves",
+          "fruit",
+          "flower"
+        ],
+        "LOD1": [
+          "stem",
+          "leaves"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 348240
+    }
+  },
+  "trees": {
+    "apple": {
+      "file": "apple.glb",
+      "width": 0.864,
+      "tris": {
+        "LOD0": 2862,
+        "LOD1": 390,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 362744
+    },
+    "pear": {
+      "file": "pear.glb",
+      "width": 0.756,
+      "tris": {
+        "LOD0": 2246,
+        "LOD1": 290,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 285404
+    },
+    "cherry": {
+      "file": "cherry.glb",
+      "width": 0.875,
+      "tris": {
+        "LOD0": 3462,
+        "LOD1": 590,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 449168
+    },
+    "peach": {
+      "file": "peach.glb",
+      "width": 1.316,
+      "tris": {
+        "LOD0": 2702,
+        "LOD1": 310,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 336804
+    },
+    "apricot": {
+      "file": "apricot.glb",
+      "width": 1.272,
+      "tris": {
+        "LOD0": 2822,
+        "LOD1": 350,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 354088
+    },
+    "plum": {
+      "file": "plum.glb",
+      "width": 1.277,
+      "tris": {
+        "LOD0": 2902,
+        "LOD1": 390,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 367052
+    },
+    "olive": {
+      "file": "olive.glb",
+      "width": 0.878,
+      "tris": {
+        "LOD0": 3494,
+        "LOD1": 450,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 437476
+    },
+    "walnut": {
+      "file": "walnut.glb",
+      "width": 0.848,
+      "tris": {
+        "LOD0": 2062,
+        "LOD1": 110,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 243992
+    },
+    "almond": {
+      "file": "almond.glb",
+      "width": 1.355,
+      "tris": {
+        "LOD0": 2102,
+        "LOD1": 110,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 248308
+    },
+    "citrus": {
+      "file": "citrus.glb",
+      "width": 0.872,
+      "tris": {
+        "LOD0": 2742,
+        "LOD1": 350,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 345464
+    },
+    "kiwi": {
+      "file": "kiwi.glb",
+      "width": 1.3,
+      "tris": {
+        "LOD0": 2702,
+        "LOD1": 310,
+        "LOD2": 36
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 336820
+    },
+    "grape_wine": {
+      "file": "grape_wine.glb",
+      "width": 0.526,
+      "tris": {
+        "LOD0": 1688,
+        "LOD1": 100,
+        "LOD2": 12
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 200780
+    },
+    "grape_table": {
+      "file": "grape_table.glb",
+      "width": 0.46,
+      "tris": {
+        "LOD0": 1688,
+        "LOD1": 100,
+        "LOD2": 12
+      },
+      "parts": {
+        "LOD0": [
+          "trunk",
+          "leaves",
+          "fruit"
+        ],
+        "LOD1": [
+          "trunk",
+          "leaves"
+        ],
+        "LOD2": [
+          "leaves"
+        ]
+      },
+      "bytes": 200776
+    }
+  },
+  "aliases": {
+    "green_bean": "bean",
+    "cucumber": "zucchini"
+  }
+}
